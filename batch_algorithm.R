@@ -1,0 +1,337 @@
+# BEFORE running algorithm, run the code in cox_model.R to load the Cox Model, and recruitment_pool.R to load the recruitment dataset used in the algorithm.
+
+# Load additional packages used in the algorithm
+library(pwr)
+library(tidyverse)
+
+###########################################################################
+## Find the demographic composition of the target population
+###########################################################################
+# Target pop set to susceptible PWID
+target_pop <- recruitment_pool[recruitment_pool$susceptible == 1,]
+total_gender_comp <- table(target_pop$Gender)/nrow(target_pop)
+total_race_comp <- table(target_pop$Race)/nrow(target_pop)
+
+# Function to create custom demographic targets
+create_demographic_target <- function(race_numbers, gender_numbers){
+  hispanic_raw <- race_numbers[1]
+  nhblack_raw <- race_numbers[2]
+  nhwhite_raw <- race_numbers[3]
+  other_raw <- race_numbers[4]
+  
+  female_raw <- gender_numbers[1]
+  male_raw <- gender_numbers[2]
+  
+  race_df <- as.data.frame(matrix(data = c(rep.int("Hispanic", hispanic_raw), rep.int("NHBlack", nhblack_raw), rep.int("NHWhite", nhwhite_raw), rep.int("Other", other_raw)), ncol = 1))
+  
+  gender_df <- as.data.frame(matrix(data = c(rep.int("Female", female_raw), rep.int("Male", male_raw)), ncol = 1))
+  
+  output_race_table <- table(race_df)
+  output_gender_table <- table(gender_df)
+  
+  return_list <- list("race" = output_race_table, "gender" = output_gender_table)
+  
+  return(return_list)
+}
+
+## Target pop set to CDC 2019 Surveillance Report data
+# target_pop <- create_demographic_target(c(350, 267, 2683, 119), c(1653, 2471))
+# total_gender_comp <- target_pop$gender/sum(target_pop$gender)
+# total_race_comp <- target_pop$race/sum(target_pop$race)
+
+
+
+###########################################################################
+##################### FINAL VERSION OF BATCH ALGORITHM ####################
+###########################################################################
+
+recruitment_per_batch <- 50
+recruited_per_batch <- 5
+trial_followup_years <- 1.5
+backlog_batch_limit <- 5
+initial_R <- recruited_per_batch
+recruitment_dataset <- recruitment_pool
+cox_model_used <- cox_model
+algorithm_output <- data.frame()
+backlog <- data.frame()
+agent_count <- 0
+batch_count <- 0
+
+# Setting the initial recruitment weights:
+incidence_weight <- 100
+demographic_weight <- 0
+weight_change_per_batch <- 0.5
+
+# Sample size constraints:
+req_sample_size <- 800
+work_constraint <- 8000
+# Reestimation point will be set by default at half the work constraint, but will be able to be adjusted:
+reestimation_point <- work_constraint/2
+
+while(nrow(algorithm_output) < req_sample_size) {
+  # Sample recruitment_per_day number of agents at a time
+  eligible <- recruitment_dataset[sample(nrow(recruitment_dataset), recruitment_per_batch),]
+  agent_count <- agent_count + nrow(eligible)
+  batch_count <- batch_count + 1
+  
+  # Apply the Cox model to the agents recruited for the day
+  eligible$status = NA
+  eligible$survival_time <- trial_followup_years
+  probabilities <- as.data.frame(predict(cox_model_used, eligible, type = "survival"))
+  colnames(probabilities) <- "survival_probability"
+  eligible_postmodel <- cbind(eligible, probabilities)
+  eligible_postmodel$infected_probability <- 1-eligible_postmodel$survival_probability
+  
+  # Eliminate agents who are not susceptible
+  eligible_postmodel <- eligible_postmodel[eligible_postmodel$susceptible == 1,]
+  
+  # Add batches_elapsed_backlog to each agent to denote how many batches have passed since they have been in backlog. Initial value = 0.
+  eligible_postmodel$batches_elapsed_backlog <- 0
+  
+  # Combine this batch and backlog into total_considered
+  total_considered <- rbind(backlog, eligible_postmodel)
+  
+  # Calculate demographic difference scores for each agent, both race and gender
+  output_gender_comp <- table(algorithm_output$Gender)/nrow(algorithm_output)
+  output_race_comp <- table(algorithm_output$Race)/nrow(algorithm_output)
+  if(nrow(algorithm_output) == 0){
+    gender_diff <- total_gender_comp
+    race_diff <- total_race_comp
+  } else {
+    gender_diff <- total_gender_comp - output_gender_comp
+    race_diff <- total_race_comp - output_race_comp
+  }
+  gender_diff <- as.data.frame(gender_diff)
+  colnames(gender_diff) <- c("Gender", "gender_diff")
+  race_diff <- as.data.frame(race_diff)
+  colnames(race_diff) <- c("Race", "race_diff")
+  
+  # Assign race and gender scores to the total_considered data frame
+  total_considered <- merge(total_considered, gender_diff, by = "Gender")
+  total_considered <- merge(total_considered, race_diff, by = "Race")
+  
+  # Apply weights to generate a single score
+  total_considered$score <- ((total_considered$infected_probability * incidence_weight) + (total_considered$race_diff * demographic_weight) + (total_considered$gender_diff * demographic_weight))
+  
+  # Rank agents by overall score
+  total_considered <- total_considered[order(total_considered$score, decreasing = TRUE),]
+  
+  # Recruit the top [recruited_per_batch] agents from total_considered, and add the rest back to the backlog
+  recruited <- head(total_considered, recruited_per_batch)
+  algorithm_output <- rbind(algorithm_output, recruited)
+  
+  backlog <- tail(total_considered, nrow(total_considered)-recruited_per_batch)
+  
+  # Delete gender_diff, race_diff, and score for the backlog
+  backlog <- backlog[, -which(names(backlog) %in% c("gender_diff", "race_diff", "score"))]
+  
+  # Increase batches_elapsed_backlog for agents left in backlog
+  backlog$batches_elapsed_backlog <- backlog$batches_elapsed_backlog + 1
+  
+  # Eliminate agents who have been in backlog for more than backlog_batch_limit batches
+  backlog <- backlog[backlog$batches_elapsed_backlog <= backlog_batch_limit,]
+  
+  # Adjust weights after each batch, up to a certain limit
+  if(incidence_weight > 75) {
+    incidence_weight <- incidence_weight - weight_change_per_batch
+    demographic_weight <- demographic_weight + weight_change_per_batch
+  }
+  
+  # Calculate new estimated sample size requirement at the prespecified reestimation point
+  if(agent_count == reestimation_point) {
+    p1 <- mean(algorithm_output$infected_probability)
+    p2 <- 0.4 * p1
+    h <- 2*asin(sqrt(p1))-2*asin(sqrt(p2))
+    req_sample_size <- 2*ceiling(pwr.2p.test(h = h, sig.level = 0.05, power = .80, alternative="greater")$n)
+  }
+  
+  # Adjust number of agents recruited from each batch based on work constraint
+#  if(nrow(backlog) >= 2*recruitment_per_batch) {
+#    remaining_agents <- work_constraint - agent_count
+#    remaining_batches <- remaining_agents/recruitment_per_batch
+#    recruited_per_batch <- ceiling((req_sample_size-nrow(algorithm_output))/remaining_batches)
+#    if(recruited_per_batch < 0.5*initial_R){
+#      recruited_per_batch <- ceiling(0.5*initial_R)
+#    }
+#  }
+}
+
+# After running algorithm, calculate actual incidence based on simulation data and predicted incidence
+table(algorithm_output$infected_by_trialend)[2]/nrow(algorithm_output)
+mean(algorithm_output$infected_probability)
+
+## GRAPHS - Gender, Race
+# Gender
+gender <- rbind(table(algorithm_output$Gender)/nrow(algorithm_output), total_gender_comp)
+rownames(gender) = c("Algorithm", "Susceptible")
+barplot(gender, xlab = "Gender", ylab = "Percent", beside=TRUE)
+legend(x = "topleft", legend = c("Algorithm", "Susceptible"), fill = c("#4D4D4D", "#E6E6E6"), cex = 0.60)
+
+# Race
+race <- rbind(table(algorithm_output$Race)/nrow(algorithm_output), total_race_comp)
+rownames(race) = c("Algorithm", "Susceptible")
+barplot(race,xlab = "Race", ylab = "Percent", beside=TRUE)
+legend(x = "topleft", legend = c("Algorithm", "Susceptible"), fill = c("#4D4D4D", "#E6E6E6"), cex = 0.60)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#######################################################################
+############################### ANALYSIS ##############################
+#######################################################################
+############ USED TO RUN MULTIPLE ALGORITHMS FOR ANALYSIS #############
+number_of_runs <- 100
+
+recruitment_per_batch <- 50
+recruited_per_batch <- 5
+recruitment_dataset <- recruitment_pool
+cox_model_used <- cox_model
+backlog <- data.frame()
+agent_count <- 0
+batch_count <- 0
+
+# Setting the initial recruitment weights:
+incidence_weight <- 100
+demographic_weight <- 0
+weight_change_per_batch <- 0.5
+
+# Placeholder sample size value:
+req_sample_size <- 9999
+expectation_vs_reality <- data.frame()
+race_analysis <- data.frame()
+gender_analysis <- data.frame()
+
+while(nrow(expectation_vs_reality) < number_of_runs) {
+  
+  algorithm_output <- data.frame()
+  
+  while(nrow(algorithm_output) < req_sample_size) {
+    # Sample recruitment_per_day number of agents at a time
+    eligible <- recruitment_dataset[sample(nrow(recruitment_dataset), recruitment_per_batch),]
+    agent_count <- agent_count + nrow(eligible)
+    batch_count <- batch_count + 1
+    
+    # Apply the Cox model to the agents recruited for the day
+    eligible$status = NA
+    eligible$survival_time <- 1.5
+    probabilities <- as.data.frame(predict(cox_model_used, eligible, type = "survival"))
+    colnames(probabilities) <- "survival_probability"
+    eligible_postmodel <- cbind(eligible, probabilities)
+    eligible_postmodel$infected_probability <- 1-eligible_postmodel$survival_probability
+    
+    # Eliminate agents who are not susceptible
+    eligible_postmodel <- eligible_postmodel[eligible_postmodel$susceptible == 1,]
+    
+    # Combine this batch and backlog into total_considered
+    total_considered <- rbind(backlog, eligible_postmodel)
+    
+    # Calculate demographic difference scores for each agent, both race and gender
+    output_gender_comp <- table(algorithm_output$Gender)/nrow(algorithm_output)
+    output_race_comp <- table(algorithm_output$Race)/nrow(algorithm_output)
+    if(nrow(algorithm_output) == 0){
+      gender_diff <- total_gender_comp
+      race_diff <- total_race_comp
+    } else {
+      gender_diff <- total_gender_comp - output_gender_comp
+      race_diff <- total_race_comp - output_race_comp
+    }
+    gender_diff <- as.data.frame(gender_diff)
+    colnames(gender_diff) <- c("Gender", "gender_diff")
+    race_diff <- as.data.frame(race_diff)
+    colnames(race_diff) <- c("Race", "race_diff")
+    
+    # Assign race and gender scores to the total_considered data frame
+    total_considered <- merge(total_considered, gender_diff, by = "Gender")
+    total_considered <- merge(total_considered, race_diff, by = "Race")
+    
+    # Apply weights to generate a single score
+    total_considered$score <- ((total_considered$infected_probability * incidence_weight) + (total_considered$race_diff * demographic_weight) + (total_considered$gender_diff * demographic_weight))
+    
+    # Rank agents by overall score
+    total_considered <- total_considered[order(total_considered$score, decreasing = TRUE),]
+    
+    # Recruit the top [recruited_per_batch] agents from total_considered, and add the rest back to the backlog
+    recruited <- head(total_considered, recruited_per_batch)
+    algorithm_output <- rbind(algorithm_output, recruited)
+    
+    backlog <- tail(total_considered, nrow(total_considered)-recruited_per_batch)
+    
+    # Delete gender_diff, race_diff, and score for the backlog
+    backlog <- backlog[, -which(names(backlog) %in% c("gender_diff", "race_diff", "score"))]
+    
+    # Calculate new estimated sample size requirement
+    p1 <- mean(algorithm_output$infected_probability)
+    p2 <- 0.4 * p1
+    h <- 2*asin(sqrt(p1))-2*asin(sqrt(p2))
+    req_sample_size <- 2*ceiling(pwr.2p.test(h = h, sig.level = 0.05, power = .80, alternative="greater")$n)
+    
+    # Adjust weights after each batch, up to a certain limit
+    if(incidence_weight > 75) {
+      incidence_weight <- incidence_weight - weight_change_per_batch
+      demographic_weight <- demographic_weight + weight_change_per_batch
+    }
+  }
+  
+  newrow <- matrix(c(table(algorithm_output$infected_by_trialend)[2]/sum(table(algorithm_output$infected_by_trialend)), mean(algorithm_output$infected_probability), table(algorithm_output$chronic_by_trialend)[2]/sum(table(algorithm_output$chronic_by_trialend))), nrow = 1)
+  colnames(newrow) <- c("actual", "expected", "chronic")
+  expectation_vs_reality <- rbind(expectation_vs_reality, newrow)
+  
+  racerow <- matrix(table(algorithm_output$Race)/nrow(algorithm_output), nrow = 1)
+  colnames(racerow) <- c("Hispanic", "NHBlack", "NHWhite", "Other")
+  genderrow <- matrix(table(algorithm_output$Gender)/nrow(algorithm_output), nrow = 1)
+  colnames(genderrow) <- c("Female", "Male")
+  
+  race_analysis <- rbind(race_analysis, racerow)
+  gender_analysis <- rbind(gender_analysis, genderrow)
+}
+
+# Incidence Calculations:
+mean(expectation_vs_reality$actual)
+mean(expectation_vs_reality$expected)
+
+# Sample Size Calculations:
+p1 <- mean(expectation_vs_reality$actual)
+p2 <- 0.4 * p1
+h <- 2*asin(sqrt(p1))-2*asin(sqrt(p2))
+2*ceiling(pwr.2p.test(h = h, sig.level = 0.05, power = .80, alternative="greater")$n)
+
+# Representativeness Max Error Calculation:
+1-abs((colMeans(gender_analysis)-total_gender_comp)/total_gender_comp)
+1-abs((colMeans(race_analysis)-total_race_comp)/total_race_comp)
+
+## GRAPHS - Gender, Race
+# Gender
+gender_input <- colMeans(gender_analysis)
+gender <- rbind(gender_input, total_gender_comp)
+rownames(gender) = c("Algorithm", "Susceptible")
+barplot(gender, xlab = "Gender", ylab = "Percent", beside=TRUE)
+legend(x = "topleft", legend = c("Algorithm", "Susceptible"), fill = c("#4D4D4D", "#E6E6E6"), cex = 0.60)
+
+# Race
+race_input <- colMeans(race_analysis)
+race <- rbind(race_input, total_race_comp)
+rownames(race) = c("Algorithm", "Susceptible")
+barplot(race,xlab = "Race", ylab = "Percent", beside=TRUE)
+legend(x = "topleft", legend = c("Algorithm", "Susceptible"), fill = c("#4D4D4D", "#E6E6E6"), cex = 0.60)
+
