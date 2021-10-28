@@ -1,3 +1,5 @@
+library(magrittr)
+
 # NOTE: the recruitment pool is derived from the test data used in the validation of the Cox Model; see cox_model.R
 
 # Set the working directory to the directory with the CSV of data
