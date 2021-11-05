@@ -61,7 +61,7 @@ unique_agents[is.na(unique_agents$event_time) == TRUE,]$event_time <- 9.858
 unique_agents$survival_time <- unique_agents$event_time - unique_agents$Time
 
 # Create Cox Model
-cox_model <- coxph(Surv(survival_time, status) ~ Age + Gender + Race + Syringe_source + Drug_in_degree + Drug_out_degree + current_total_network_size + Daily_injection_intensity + Fraction_recept_sharing + chicago_community_name, data = unique_agents)
+cox_model <- coxph(Surv(time = survival_time, event = status) ~ Age + Gender + Race + Syringe_source + Drug_in_degree + Drug_out_degree + current_total_network_size + Daily_injection_intensity + Fraction_recept_sharing + chicago_community_name, data = unique_agents)
 
 
 

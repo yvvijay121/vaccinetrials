@@ -169,6 +169,19 @@ while(nrow(algorithm_output) < req_sample_size) {
   if(agent_count == reestimation_point) {
     req_sample_size <- reestimate_n(algorithm_output)
   }
+  
+  # Print current agent count
+  print(paste("Current number of agents screened:", agent_count))
+  
+  # Print warning statement in console if work constraint is destined to be violated
+  work_remaining <- work_constraint - agent_count
+  currently_recruited <- nrow(algorithm_output)
+  blinded_n_for_warning <- reestimate_n(algorithm_output)
+  remaining_agents_needed <- blinded_n_for_warning - currently_recruited
+  remaining_batches_needed <- remaining_agents_needed/recruited_per_batch
+  if((remaining_batches_needed * recruitment_per_batch) > work_remaining){
+    print("WARNING: With current predicted incidence, work constraint is destined to be exceeded.")
+  }
 }
 
 #########################################################################
@@ -320,6 +333,8 @@ while(nrow(expectation_vs_reality) < number_of_runs) {
   
   race_analysis <- rbind(race_analysis, racerow)
   gender_analysis <- rbind(gender_analysis, genderrow)
+  
+  print(paste("Completed runs:", nrow(expectation_vs_reality)))
 }
 
 # Incidence Calculations:
