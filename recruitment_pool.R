@@ -3,7 +3,7 @@ library(magrittr)
 # NOTE: the recruitment pool is derived from the test data used in the validation of the Cox Model; see cox_model.R
 
 # Set the working directory to the directory with the CSV of data
-setwd("C:/Users/rchiu8/OneDrive - University of Illinois at Chicago/Stats/HCV")
+setwd("C:/Users/richa/OneDrive - University of Illinois at Chicago/Stats/HCV")
 
 # Read the CSV file as a data frame and create the training set using 20% of the data.
 simulation_data <- read.csv("events_pool.csv")
