@@ -60,11 +60,12 @@ unique_agents[is.na(unique_agents$event_time) == TRUE,]$event_time <- unique_age
 unique_agents[is.na(unique_agents$event_time) == TRUE,]$event_time <- 9.858
 unique_agents$survival_time <- unique_agents$event_time - unique_agents$Time
 
-# Create Random Survival Forest Model
+#### Create Random Survival Forest Model
+# Standard: nodesize set to 10% of the training data sample size
 rf <- rfsrc(Surv(time = survival_time, event = status) ~ Age + Gender + Race + Syringe_source + Drug_in_degree + Drug_out_degree + current_total_network_size + Daily_injection_intensity + Fraction_recept_sharing + chicago_community_name, data = unique_agents, nodesize = round(nrow(unique_agents)/10, digits = 0))
 
-
-
+# Best model: Not supported by literature, but produces best results for algorithm
+rf_best <- rfsrc(Surv(time = survival_time, event = status) ~ Age + Gender + Race + Syringe_source + Drug_in_degree + Drug_out_degree + current_total_network_size + Daily_injection_intensity + Fraction_recept_sharing + chicago_community_name, data = unique_agents, nodesize = 150)
 
 
 
@@ -105,7 +106,7 @@ test$Syringe_source <- factor(test$Syringe_source)
 test$chicago_community_name <- factor(test$chicago_community_name)
 
 # Apply the trained Cox Model to the test set using the predict function, producing a dataframe of survival probabilities (the probability they do NOT become infected)
-prediction_data <- predict.rfsrc(rf, test, na.action = "na.impute")
+prediction_data <- predict.rfsrc(rf_best, test, na.action = "na.impute")
 time_interest <- which(abs(prediction_data$time.interest-1.5)==min(abs(prediction_data$time.interest-1.5)))
 probabilities <- 1 - prediction_data$survival[,time_interest]
 
@@ -179,7 +180,7 @@ trial_followup_years <- 1.5
 backlog_batch_limit <- 5
 initial_R <- recruited_per_batch
 recruitment_dataset <- recruitment_pool
-rsf_model_used <- rf
+rsf_model_used <- rf_best
 algorithm_output <- data.frame()
 backlog <- data.frame()
 agent_count <- 0
@@ -188,13 +189,15 @@ batch_count <- 0
 # Setting the initial recruitment weights:
 incidence_weight <- 100
 demographic_weight <- 0
-weight_change_per_batch <- 0.5
+weight_change_per_batch <- 1
+incidence_weight_min <- 50
 
 # Sample size constraints:
 req_sample_size <- 800
 work_constraint <- 8000
 # Reestimation point will be set by default at half the work constraint, but will be able to be adjusted:
-reestimation_point <- work_constraint/2
+reestimation_point <- work_constraint/3
+reestimate_completion <- 0
 
 # Create all the functions corresponding to each step in the algorithm:
 apply_rsf <- function(data, model, follow_up_time) {
@@ -245,6 +248,8 @@ reestimate_n <- function(currently_in_trial) {
 ############################### ALGORITHM ###############################
 #########################################################################
 
+start_time <- proc.time()
+
 while(nrow(algorithm_output) < req_sample_size) {
   # Sample recruitment_per_day number of agents at a time
   eligible <- recruitment_dataset[sample(nrow(recruitment_dataset), recruitment_per_batch),]
@@ -288,14 +293,16 @@ while(nrow(algorithm_output) < req_sample_size) {
   backlog <- backlog[backlog$batches_elapsed_backlog <= backlog_batch_limit,]
   
   # Adjust weights after each batch, up to a certain limit
-  if(incidence_weight > 75) {
+  if(incidence_weight > incidence_weight_min) {
     incidence_weight <- incidence_weight - weight_change_per_batch
     demographic_weight <- demographic_weight + weight_change_per_batch
   }
   
   # Calculate new estimated sample size requirement at the prespecified reestimation point
-  if(agent_count == reestimation_point) {
+  if(agent_count >= reestimation_point && reestimate_completion == 0) {
     req_sample_size <- reestimate_n(algorithm_output)
+    print(paste("Sample size reestimated to be:", req_sample_size))
+    reestimate_completion <- 1
   }
   
   # Print current agent count
@@ -311,6 +318,9 @@ while(nrow(algorithm_output) < req_sample_size) {
     print("WARNING: With current predicted incidence, work constraint is destined to be exceeded.")
   }
 }
+
+# Print elapsed time for algorithm completion
+print(proc.time()-start_time)
 
 #########################################################################
 #########################################################################

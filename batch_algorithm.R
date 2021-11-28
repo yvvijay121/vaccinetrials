@@ -60,7 +60,8 @@ batch_count <- 0
 # Setting the initial recruitment weights:
 incidence_weight <- 100
 demographic_weight <- 0
-weight_change_per_batch <- 0.5
+weight_change_per_batch <- 1
+incidence_weight_min <- 50
 
 # Sample size constraints:
 req_sample_size <- 800
@@ -117,7 +118,10 @@ reestimate_n <- function(currently_in_trial) {
 ############################### ALGORITHM ###############################
 #########################################################################
 
+start_time <- proc.time()
+
 while(nrow(algorithm_output) < req_sample_size) {
+  
   # Sample recruitment_per_day number of agents at a time
   eligible <- recruitment_dataset[sample(nrow(recruitment_dataset), recruitment_per_batch),]
   agent_count <- agent_count + nrow(eligible)
@@ -160,7 +164,7 @@ while(nrow(algorithm_output) < req_sample_size) {
   backlog <- backlog[backlog$batches_elapsed_backlog <= backlog_batch_limit,]
   
   # Adjust weights after each batch, up to a certain limit
-  if(incidence_weight > 75) {
+  if(incidence_weight > incidence_weight_min) {
     incidence_weight <- incidence_weight - weight_change_per_batch
     demographic_weight <- demographic_weight + weight_change_per_batch
   }
@@ -183,6 +187,9 @@ while(nrow(algorithm_output) < req_sample_size) {
     print("WARNING: With current predicted incidence, work constraint is destined to be exceeded.")
   }
 }
+
+# Print elapsed time for algorithm completion
+print(proc.time()-start_time)
 
 #########################################################################
 #########################################################################
@@ -236,7 +243,7 @@ legend(x = "topleft", legend = c("Algorithm", "Susceptible"), fill = c("#4D4D4D"
 ############################### ANALYSIS ##############################
 #######################################################################
 ############ USED TO RUN MULTIPLE ALGORITHMS FOR ANALYSIS #############
-number_of_runs <- 100
+number_of_runs <- 10
 
 recruitment_per_batch <- 50
 recruited_per_batch <- 5
@@ -245,10 +252,6 @@ backlog_batch_limit <- 5
 initial_R <- recruited_per_batch
 recruitment_dataset <- recruitment_pool
 cox_model_used <- cox_model
-algorithm_output <- data.frame()
-backlog <- data.frame()
-agent_count <- 0
-batch_count <- 0
 
 # Setting the initial recruitment weights:
 incidence_weight <- 100
@@ -267,6 +270,9 @@ gender_analysis <- data.frame()
 while(nrow(expectation_vs_reality) < number_of_runs) {
   
   algorithm_output <- data.frame()
+  backlog <- data.frame()
+  agent_count <- 0
+  batch_count <- 0
   
   while(nrow(algorithm_output) < req_sample_size) {
     # Sample recruitment_per_day number of agents at a time
@@ -348,20 +354,20 @@ h <- 2*asin(sqrt(p1))-2*asin(sqrt(p2))
 2*ceiling(pwr.2p.test(h = h, sig.level = 0.05, power = .80, alternative="greater")$n)
 
 # Representativeness Max Error Calculation:
-1-abs((colMeans(gender_analysis)-total_gender_comp)/total_gender_comp)
-1-abs((colMeans(race_analysis)-total_race_comp)/total_race_comp)
+1-abs((colMeans(gender_analysis)-target_gender_comp)/target_gender_comp)
+1-abs((colMeans(race_analysis)-target_race_comp)/target_race_comp)
 
 ## GRAPHS - Gender, Race
 # Gender
 gender_input <- colMeans(gender_analysis)
-gender <- rbind(gender_input, total_gender_comp)
+gender <- rbind(gender_input, target_gender_comp)
 rownames(gender) = c("Algorithm", "Susceptible")
 barplot(gender, xlab = "Gender", ylab = "Percent", beside=TRUE)
 legend(x = "topleft", legend = c("Algorithm", "Susceptible"), fill = c("#4D4D4D", "#E6E6E6"), cex = 0.60)
 
 # Race
 race_input <- colMeans(race_analysis)
-race <- rbind(race_input, total_race_comp)
+race <- rbind(race_input, target_race_comp)
 rownames(race) = c("Algorithm", "Susceptible")
 barplot(race,xlab = "Race", ylab = "Percent", beside=TRUE)
 legend(x = "topleft", legend = c("Algorithm", "Susceptible"), fill = c("#4D4D4D", "#E6E6E6"), cex = 0.60)
