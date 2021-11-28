@@ -5,7 +5,7 @@ library(survminer)
 library(dplyr)
 
 # Set the working directory to the directory with the CSV of data
-setwd("C:/Users/rchiu8/OneDrive - University of Illinois at Chicago/Stats/HCV")
+setwd("C:/Users/richa/OneDrive - University of Illinois at Chicago/Stats/HCV")
 
 # Read the CSV file as a data frame and create the training set using 20% of the data.
 simulation_data <- read.csv("events_pool.csv")
@@ -62,6 +62,16 @@ unique_agents$survival_time <- unique_agents$event_time - unique_agents$Time
 
 # Create Cox Model
 cox_model <- coxph(Surv(time = survival_time, event = status) ~ Age + Gender + Race + Syringe_source + Drug_in_degree + Drug_out_degree + current_total_network_size + Daily_injection_intensity + Fraction_recept_sharing + chicago_community_name, data = unique_agents)
+
+
+
+
+############################# Universal Cox #############################
+summary(cox_model)
+
+# Removing Chicago communities and Race predictors to produce universal Cox Model
+universal_cox <- coxph(Surv(time = survival_time, event = status) ~ Age + Gender + Syringe_source + Drug_in_degree + Drug_out_degree + current_total_network_size + Daily_injection_intensity + Fraction_recept_sharing, data = unique_agents)
+
 
 
 
