@@ -39,6 +39,10 @@ create_demographic_target <- function(race_numbers, gender_numbers){
 # target_gender_comp <- target_pop$gender/sum(target_pop$gender)
 # target_race_comp <- target_pop$race/sum(target_pop$race)
 
+## Target pop set to test case for extreme differences between target population and available population
+# target_pop <- create_demographic_target(c(40, 30, 20, 10), c(50, 50))
+# target_gender_comp <- target_pop$gender/sum(target_pop$gender)
+# target_race_comp <- target_pop$race/sum(target_pop$race)
 
 
 ###########################################################################
@@ -49,7 +53,6 @@ recruitment_per_batch <- 50
 recruited_per_batch <- 5
 trial_followup_years <- 1.5
 backlog_batch_limit <- 5
-initial_R <- recruited_per_batch
 recruitment_dataset <- recruitment_pool
 cox_model_used <- cox_model
 algorithm_output <- data.frame()
@@ -57,17 +60,19 @@ backlog <- data.frame()
 agent_count <- 0
 batch_count <- 0
 
-# Setting the initial recruitment weights:
-incidence_weight <- 100
-demographic_weight <- 0
-weight_change_per_batch <- 1
-incidence_weight_min <- 50
-
 # Sample size constraints:
 req_sample_size <- 800
 work_constraint <- 8000
 # Reestimation point will be set by default at half the work constraint, but will be able to be adjusted:
 reestimation_point <- work_constraint/2
+reestimate_completion <- 0
+
+# Setting the initial recruitment weights:
+incidence_weight <- 100
+demographic_weight <- 0
+incidence_weight_min <- 25
+weight_change_per_batch <- (incidence_weight-incidence_weight_min)/(req_sample_size/recruited_per_batch)
+high_demo_error_adjustment <- FALSE
 
 # Create all the functions corresponding to each step in the algorithm:
 apply_cox <- function(data, cox) {
@@ -110,6 +115,15 @@ reestimate_n <- function(currently_in_trial) {
   new_n <- 2*ceiling(pwr.2p.test(h = h, sig.level = 0.05, power = .80, alternative="greater")$n)
   
   return(new_n)
+}
+
+print_warning <- function(work_constraint, agent_count, recruitment_per_batch, algorithm_output){
+  work_remaining <- work_constraint - agent_count
+  remaining_agents_needed <- reestimate_n(algorithm_output) - nrow(algorithm_output)
+  remaining_batches_needed <- remaining_agents_needed/recruited_per_batch
+  if((remaining_batches_needed * recruitment_per_batch) > work_remaining){
+    print("WARNING: With current predicted incidence, work constraint is destined to be exceeded.")
+  }
 }
 
 
@@ -167,25 +181,28 @@ while(nrow(algorithm_output) < req_sample_size) {
   if(incidence_weight > incidence_weight_min) {
     incidence_weight <- incidence_weight - weight_change_per_batch
     demographic_weight <- demographic_weight + weight_change_per_batch
+    blinded_n <- reestimate_n(algorithm_output)
+    weight_change_per_batch <- (incidence_weight-incidence_weight_min)/(blinded_n/5)
+    
+    if(high_demo_error_adjustment == TRUE){
+      error_adjustment <- 1-min(c(1-abs((table(algorithm_output$Gender)/nrow(algorithm_output)-target_gender_comp)/target_gender_comp),1-abs((table(algorithm_output$Race)/nrow(algorithm_output)-target_race_comp)/target_race_comp)))
+      weight_change_per_batch <- weight_change_per_batch + error_adjustment
+    }
+    
+    print(paste("Current Weights:", incidence_weight, demographic_weight, "Weight Change Next Batch:", weight_change_per_batch))
   }
   
   # Calculate new estimated sample size requirement at the prespecified reestimation point
   if(agent_count == reestimation_point) {
     req_sample_size <- reestimate_n(algorithm_output)
+    reestimate_completion <- 1
   }
   
   # Print current agent count
   print(paste("Current number of agents screened:", agent_count))
   
   # Print warning statement in console if work constraint is destined to be violated
-  work_remaining <- work_constraint - agent_count
-  currently_recruited <- nrow(algorithm_output)
-  blinded_n_for_warning <- reestimate_n(algorithm_output)
-  remaining_agents_needed <- blinded_n_for_warning - currently_recruited
-  remaining_batches_needed <- remaining_agents_needed/recruited_per_batch
-  if((remaining_batches_needed * recruitment_per_batch) > work_remaining){
-    print("WARNING: With current predicted incidence, work constraint is destined to be exceeded.")
-  }
+  print_warning(work_constraint, agent_count, recruitment_per_batch, algorithm_output)
 }
 
 # Print elapsed time for algorithm completion
@@ -215,7 +232,9 @@ rownames(race) = c("Algorithm", "Susceptible")
 barplot(race,xlab = "Race", ylab = "Percent", beside=TRUE)
 legend(x = "topleft", legend = c("Algorithm", "Susceptible"), fill = c("#4D4D4D", "#E6E6E6"), cex = 0.60)
 
-
+# Representativeness Max Error Calculation:
+1-abs((table(algorithm_output$Gender)/nrow(algorithm_output)-target_gender_comp)/target_gender_comp)
+1-abs((table(algorithm_output$Race)/nrow(algorithm_output)-target_race_comp)/target_race_comp)
 
 
 
