@@ -1,4 +1,4 @@
-# BEFORE running algorithm, run the code in cox_model.R to load the Cox Model, and recruitment_pool.R to load the recruitment dataset used in the algorithm.
+# BEFORE running algorithm, run the code in cox_model.R to load the Cox Model or algorithm_ML_model.R to load the RSF Model, and recruitment_pool.R to load the recruitment dataset used in the algorithm.
 
 # Load additional packages used in the algorithm
 library(pwr)
@@ -54,24 +54,15 @@ recruited_per_batch <- 5
 trial_followup_years <- 1.5
 backlog_batch_limit <- 5
 recruitment_dataset <- recruitment_pool
-cox_model_used <- cox_model
-algorithm_output <- data.frame()
-backlog <- data.frame()
-agent_count <- 0
-batch_count <- 0
+#model_used <- cox_model
+model_used <- rf_best
 
 # Sample size constraints:
 req_sample_size <- 800
 work_constraint <- 8000
-# Reestimation point will be set by default at half the work constraint, but will be able to be adjusted:
-reestimation_point <- work_constraint/2
-reestimate_completion <- 0
 
-# Setting the initial recruitment weights:
-incidence_weight <- 100
-demographic_weight <- 0
+# Setting recruitment parameters:
 incidence_weight_min <- 25
-weight_change_per_batch <- (incidence_weight-incidence_weight_min)/(req_sample_size/recruited_per_batch)
 high_demo_error_adjustment <- FALSE
 
 # Create all the functions corresponding to each step in the algorithm:
@@ -79,6 +70,17 @@ apply_cox <- function(data, cox) {
   data$status <- NA
   data$survival_time <- trial_followup_years
   probabilities <- as.data.frame(predict(cox, data, type = "survival"))
+  colnames(probabilities) <- "survival_probability"
+  output <- cbind(data, probabilities)
+  output$infected_probability <- 1-output$survival_probability
+  
+  return(output)
+}
+
+apply_rsf <- function(data, model, follow_up_time) {
+  prediction_data <- predict.rfsrc(model, data, na.action = "na.impute")
+  time_interest <- which(abs(prediction_data$time.interest-follow_up_time)==min(abs(prediction_data$time.interest-follow_up_time)))
+  probabilities <- as.data.frame(prediction_data$survival[,time_interest])
   colnames(probabilities) <- "survival_probability"
   output <- cbind(data, probabilities)
   output$infected_probability <- 1-output$survival_probability
@@ -134,6 +136,27 @@ print_warning <- function(work_constraint, agent_count, recruitment_per_batch, a
 
 start_time <- proc.time()
 
+# Reestimation point will be set by default at 1/2 work constraint for Cox, 1/3 for ML, but can be adjusted:
+if(class(model_used) == "coxph"){
+  reestimation_point <- work_constraint/2
+}
+
+if(class(model_used)[1] == "rfsrc"){
+  reestimation_point <- work_constraint/3
+}
+reestimate_completion <- 0
+
+# Initiating variables
+algorithm_output <- data.frame()
+backlog <- data.frame()
+agent_count <- 0
+batch_count <- 0
+
+# Setting the initial recruitment weights:
+incidence_weight <- 100
+demographic_weight <- 0
+weight_change_per_batch <- (incidence_weight-incidence_weight_min)/(req_sample_size/recruited_per_batch)
+
 while(nrow(algorithm_output) < req_sample_size) {
   
   # Sample recruitment_per_day number of agents at a time
@@ -142,7 +165,13 @@ while(nrow(algorithm_output) < req_sample_size) {
   batch_count <- batch_count + 1
   
   # Apply the Cox model to the agents recruited for the day
-  eligible_postmodel <- apply_cox(eligible, cox_model_used)
+  if(class(model_used) == "coxph"){
+    eligible_postmodel <- apply_cox(eligible, model_used)
+  }
+  
+  if(class(model_used)[1] == "rfsrc"){
+    eligible_postmodel <- apply_rsf(eligible, model_used, trial_followup_years)
+  }
   
   # Eliminate agents who are not susceptible
   eligible_postmodel <- eligible_postmodel[eligible_postmodel$susceptible == 1,]
@@ -193,8 +222,9 @@ while(nrow(algorithm_output) < req_sample_size) {
   }
   
   # Calculate new estimated sample size requirement at the prespecified reestimation point
-  if(agent_count == reestimation_point) {
+  if(agent_count >= reestimation_point && reestimate_completion == 0) {
     req_sample_size <- reestimate_n(algorithm_output)
+    print(paste("Sample size reestimated to be:", req_sample_size))
     reestimate_completion <- 1
   }
   
@@ -241,6 +271,135 @@ legend(x = "topleft", legend = c("Algorithm", "Susceptible"), fill = c("#4D4D4D"
 
 
 
+
+
+
+
+
+#########################################################################
+################################ FUNCTION ###############################
+#########################################################################
+algorithm <- function(recruitment_dataset, model_used, recruitment_per_batch, recruited_per_batch, trial_followup_years, req_sample_size, work_constraint, incidence_weight_min = 25, backlog_batch_limit = 5, high_demo_error_adjustment = FALSE) {
+  start_time <- proc.time()
+  
+  # Reestimation point will be set by default at 1/2 work constraint for Cox, 1/3 for ML, but can be adjusted:
+  if(class(model_used) == "coxph"){
+    reestimation_point <- work_constraint/2
+  }
+  
+  if(class(model_used)[1] == "rfsrc"){
+    reestimation_point <- work_constraint/3
+  }
+  reestimate_completion <- 0
+  
+  # Initiating variables
+  algorithm_output <- data.frame()
+  backlog <- data.frame()
+  agent_count <- 0
+  batch_count <- 0
+  
+  # Setting the initial recruitment weights:
+  incidence_weight <- 100
+  demographic_weight <- 0
+  weight_change_per_batch <- (incidence_weight-incidence_weight_min)/(req_sample_size/recruited_per_batch)
+  
+  while(nrow(algorithm_output) < req_sample_size) {
+    
+    # Sample recruitment_per_day number of agents at a time
+    eligible <- recruitment_dataset[sample(nrow(recruitment_dataset), recruitment_per_batch),]
+    agent_count <- agent_count + nrow(eligible)
+    batch_count <- batch_count + 1
+    
+    # Apply the Cox model to the agents recruited for the day
+    if(class(model_used)[1] == "coxph"){
+      eligible_postmodel <- apply_cox(eligible, model_used)
+    }
+    
+    if(class(model_used)[1] == "rfsrc"){
+      eligible_postmodel <- apply_rsf(eligible, model_used, trial_followup_years)
+    }
+    
+    # Eliminate agents who are not susceptible
+    eligible_postmodel <- eligible_postmodel[eligible_postmodel$susceptible == 1,]
+    
+    # Add batches_elapsed_backlog to each agent to denote how many batches have passed since they have been in backlog. Initial value = 0.
+    eligible_postmodel$batches_elapsed_backlog <- 0
+    
+    # Combine this batch and backlog into total_considered
+    total_considered <- rbind(backlog, eligible_postmodel)
+    
+    # Calculate demographic difference scores for each agent, both race and gender
+    total_considered <- compute_demographic_score(total_considered, algorithm_output, target_race_comp, target_gender_comp)
+    
+    # Apply weights to generate a single score
+    total_considered$score <- ((total_considered$infected_probability * incidence_weight) + (total_considered$demographic_score * demographic_weight))
+    
+    # Rank agents by overall score
+    total_considered <- total_considered[order(total_considered$score, decreasing = TRUE),]
+    
+    # Recruit the top [recruited_per_batch] agents from total_considered, and add the rest back to the backlog
+    recruited <- head(total_considered, recruited_per_batch)
+    algorithm_output <- rbind(algorithm_output, recruited)
+    
+    backlog <- tail(total_considered, nrow(total_considered)-recruited_per_batch)
+    
+    # Delete gender_diff, race_diff, demographic_score, and score from the backlog for proper looping
+    backlog <- backlog[, -which(names(backlog) %in% c("gender_diff", "race_diff", "demographic_score", "score"))]
+    
+    # Increase batches_elapsed_backlog for agents left in backlog
+    backlog$batches_elapsed_backlog <- backlog$batches_elapsed_backlog + 1
+    
+    # Eliminate agents who have been in backlog for more than backlog_batch_limit batches
+    backlog <- backlog[backlog$batches_elapsed_backlog <= backlog_batch_limit,]
+    
+    # Adjust weights after each batch, up to a certain limit
+    if(incidence_weight > incidence_weight_min) {
+      incidence_weight <- incidence_weight - weight_change_per_batch
+      demographic_weight <- demographic_weight + weight_change_per_batch
+      blinded_n <- reestimate_n(algorithm_output)
+      weight_change_per_batch <- (incidence_weight-incidence_weight_min)/(blinded_n/5)
+      
+      if(high_demo_error_adjustment == TRUE){
+        error_adjustment <- 1-min(c(1-abs((table(algorithm_output$Gender)/nrow(algorithm_output)-target_gender_comp)/target_gender_comp),1-abs((table(algorithm_output$Race)/nrow(algorithm_output)-target_race_comp)/target_race_comp)))
+        weight_change_per_batch <- weight_change_per_batch + error_adjustment
+      }
+      
+      print(paste("Current Weights:", incidence_weight, demographic_weight, "Weight Change Next Batch:", weight_change_per_batch))
+    }
+    
+    # Calculate new estimated sample size requirement at the prespecified reestimation point
+    if(agent_count >= reestimation_point && reestimate_completion == 0) {
+      req_sample_size <- reestimate_n(algorithm_output)
+      print(paste("Sample size reestimated to be:", req_sample_size))
+      reestimate_completion <- 1
+    }
+    
+    # Print current agent count
+    print(paste("Current number of agents screened:", agent_count))
+    
+    # Print warning statement in console if work constraint is destined to be violated
+    print_warning(work_constraint, agent_count, recruitment_per_batch, algorithm_output)
+  }
+  
+  # Print elapsed time for algorithm completion
+  print(proc.time()-start_time)
+  
+  # Return the algorithm_output data frame
+  return(algorithm_output)
+}
+
+
+# Testing functionality of algorithm function
+algorithm_output <- algorithm(recruitment_dataset = recruitment_pool, model_used = rf_best, recruitment_per_batch = 50, recruited_per_batch = 5, trial_followup_years = 1.5, req_sample_size = 800, work_constraint = 8000)
+
+
+# After running algorithm, calculate actual incidence based on simulation data and predicted incidence
+table(algorithm_output$infected_by_trialend)[2]/nrow(algorithm_output)
+mean(algorithm_output$infected_probability)
+
+#########################################################################
+#########################################################################
+#########################################################################
 
 
 
@@ -300,7 +459,7 @@ while(nrow(expectation_vs_reality) < number_of_runs) {
     batch_count <- batch_count + 1
     
     # Apply the Cox model to the agents recruited for the day
-    eligible_postmodel <- apply_cox(eligible, cox_model_used)
+    eligible_postmodel <- apply_cox(eligible, model_used)
     
     # Eliminate agents who are not susceptible
     eligible_postmodel <- eligible_postmodel[eligible_postmodel$susceptible == 1,]
