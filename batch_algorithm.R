@@ -60,6 +60,7 @@ model_used <- rf_best
 # Sample size constraints:
 req_sample_size <- 800
 work_constraint <- 8000
+ssmethod <- "cohen"
 
 # Setting recruitment parameters:
 incidence_weight_min <- 25
@@ -110,11 +111,33 @@ compute_demographic_score <- function(data, currently_in_trial, target_race, tar
   return(output)
 }
 
-reestimate_n <- function(currently_in_trial) {
-  p1 <- mean(currently_in_trial$infected_probability)
-  p2 <- 0.4 * p1
-  h <- 2*asin(sqrt(p1))-2*asin(sqrt(p2))
-  new_n <- 2*ceiling(pwr.2p.test(h = h, sig.level = 0.05, power = .80, alternative="greater")$n)
+reestimate_n <- function(currently_in_trial, sig.level = 0.05, power = .80, method = "cohen") {
+  if(method == "cohen"){
+    p1 <- mean(currently_in_trial$infected_probability)
+    p2 <- 0.4 * p1
+    h <- 2*asin(sqrt(p1))-2*asin(sqrt(p2))
+    new_n <- 2*ceiling(pwr.2p.test(h = h, sig.level = sig.level, power = power, alternative="greater")$n)
+  }
+  
+  if(method == "kelsey"){
+    z_a <- qnorm(sig.level/2, lower.tail = F)
+    z_b <- qnorm(1-power, lower.tail = F)
+    p1 <- mean(currently_in_trial$infected_probability)
+    p2 <- 0.4 * p1
+    p <- (p1+p2)/2
+    new_n <- 2*ceiling((((z_a+z_b)^2)*(p)*(1-p)*2)/((p1-p2)^2))
+  }
+  
+  if(method == "schoenfeld"){
+    z_a <- qnorm(sig.level/2, lower.tail = F)
+    z_b <- qnorm(1-power, lower.tail = F)
+    theta <- 0.4
+    d <- 4*(((z_a+z_b)^2)/(log(theta)^2))
+    p1 <- mean(currently_in_trial$infected_probability)
+    p2 <- 0.4 * p1
+    p <- (p1+p2)/2
+    new_n <- ceiling(d/p)
+  }
   
   return(new_n)
 }
@@ -210,8 +233,8 @@ while(nrow(algorithm_output) < req_sample_size) {
   if(incidence_weight > incidence_weight_min) {
     incidence_weight <- incidence_weight - weight_change_per_batch
     demographic_weight <- demographic_weight + weight_change_per_batch
-    blinded_n <- reestimate_n(algorithm_output)
-    weight_change_per_batch <- (incidence_weight-incidence_weight_min)/(blinded_n/5)
+    blinded_n <- reestimate_n(algorithm_output, method = ssmethod)
+    weight_change_per_batch <- (incidence_weight-incidence_weight_min)/(blinded_n/recruited_per_batch)
     
     if(high_demo_error_adjustment == TRUE){
       error_adjustment <- 1-min(c(1-abs((table(algorithm_output$Gender)/nrow(algorithm_output)-target_gender_comp)/target_gender_comp),1-abs((table(algorithm_output$Race)/nrow(algorithm_output)-target_race_comp)/target_race_comp)))
@@ -223,7 +246,7 @@ while(nrow(algorithm_output) < req_sample_size) {
   
   # Calculate new estimated sample size requirement at the prespecified reestimation point
   if(agent_count >= reestimation_point && reestimate_completion == 0) {
-    req_sample_size <- reestimate_n(algorithm_output)
+    req_sample_size <- reestimate_n(algorithm_output, method = ssmethod)
     print(paste("Sample size reestimated to be:", req_sample_size))
     reestimate_completion <- 1
   }
@@ -279,7 +302,7 @@ legend(x = "topleft", legend = c("Algorithm", "Susceptible"), fill = c("#4D4D4D"
 #########################################################################
 ################################ FUNCTION ###############################
 #########################################################################
-algorithm <- function(recruitment_dataset, model_used, recruitment_per_batch, recruited_per_batch, trial_followup_years, req_sample_size, work_constraint, incidence_weight_min = 25, backlog_batch_limit = 5, high_demo_error_adjustment = FALSE) {
+algorithm <- function(recruitment_dataset, model_used, recruitment_per_batch, recruited_per_batch, trial_followup_years, req_sample_size, work_constraint, incidence_weight_min = 25, backlog_batch_limit = 5, high_demo_error_adjustment = FALSE, ssmethod = "cohen") {
   start_time <- proc.time()
   
   # Reestimation point will be set by default at 1/2 work constraint for Cox, 1/3 for ML, but can be adjusted:
@@ -356,7 +379,7 @@ algorithm <- function(recruitment_dataset, model_used, recruitment_per_batch, re
     if(incidence_weight > incidence_weight_min) {
       incidence_weight <- incidence_weight - weight_change_per_batch
       demographic_weight <- demographic_weight + weight_change_per_batch
-      blinded_n <- reestimate_n(algorithm_output)
+      blinded_n <- reestimate_n(algorithm_output, method = ssmethod)
       weight_change_per_batch <- (incidence_weight-incidence_weight_min)/(blinded_n/5)
       
       if(high_demo_error_adjustment == TRUE){
@@ -369,7 +392,7 @@ algorithm <- function(recruitment_dataset, model_used, recruitment_per_batch, re
     
     # Calculate new estimated sample size requirement at the prespecified reestimation point
     if(agent_count >= reestimation_point && reestimate_completion == 0) {
-      req_sample_size <- reestimate_n(algorithm_output)
+      req_sample_size <- reestimate_n(algorithm_output, method = ssmethod)
       print(paste("Sample size reestimated to be:", req_sample_size))
       reestimate_completion <- 1
     }
