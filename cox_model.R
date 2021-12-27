@@ -86,11 +86,15 @@ agents_infected_total <- agents_infected_total[!duplicated(agents_infected_total
 colnames(agents_infected_total) <- c("infected_time", "Agent")
 test <- merge(test, agents_infected_total, by = "Agent", all.x = TRUE)
 
-# Set status variable as NA as prerequisite to applying the Cox Model
-test$status <- NA
+# Identify when agents were deactivated
+test_deactivated_time <- test[test$Event == "deactivated",]
+test_deactivated_time <- test_deactivated_time[, c("Time","Agent")]
+colnames(test_deactivated_time) <- c("deactivated_time", "Agent")
+test <- merge(test, test_deactivated_time, by = "Agent", all.x = TRUE)
 
-# Set desired survival time for the Cox Model prediction (1.5 year follow-up in this case)
-test$survival_time <- 1.5
+# Set status variable according to HCV infection
+test$status <- 0
+test$status[is.na(test$infected_time) == FALSE] <- 1
 
 # Reduce test data to unique agents at the time they were activated and only those who are HCV susceptible
 test <- test[test$Event == "activated",]
@@ -110,6 +114,20 @@ test$Race <- factor(test$Race)
 test$Syringe_source <- factor(test$Syringe_source)
 test$chicago_community_name <- factor(test$chicago_community_name)
 
+# Select the correct time for the "event_time"
+# Hierarchy: infected > deactivated
+test$event_time <- NA
+test[is.na(test$event_time) == TRUE,]$event_time <- test[is.na(test$event_time) == TRUE,]$infected_time
+test[is.na(test$event_time) == TRUE,]$event_time <- test[is.na(test$event_time) == TRUE,]$deactivated_time
+
+# Some agents never reach any of these outcomes (are activated but nothing else happens). Thus they remain susceptible through the entire simulation, and their event time is assigned as 9.858 (last tick of simulation)
+
+test[is.na(test$event_time) == TRUE,]$event_time <- 9.858
+test$survival_time_actual <- test$event_time - test$Time
+
+# Set desired time for prediction
+test$survival_time <- 1.5
+
 # Apply the trained Cox Model to the test set using the predict function, producing a dataframe of survival probabilities (the probability they do NOT become infected)
 probabilities <- as.data.frame(predict(cox_model, test, type = "survival"))
 colnames(probabilities) <- "survival_probability"
@@ -124,6 +142,32 @@ test$infected_probability <- 1-test$survival_probability
 # Calculates the mean predicted incidence for the test data using the Cox Model as well as the actual incidence based on the simulation.
 mean(test$infected_probability)
 table(test$infected_by_trialend)[2] / (table(test$infected_by_trialend)[1] + table(test$infected_by_trialend)[2])
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Model Evaluation using survAUC library
+library(survAUC)
+
+# AUC estimator proposed by Chambless and Diao
+AUC.cd(Surv.rsp = Surv(time = unique_agents$survival_time, event = unique_agents$status), Surv.rsp.new = Surv(time = test$survival_time_actual, event = test$status), lp = predict(cox_model), lpnew = predict(cox_model, newdata=test), times = seq(0, 1.5, 0.1))
+
+# AUC estimator proposed by Uno et al.
+AUC.uno(Surv.rsp = Surv(time = unique_agents$survival_time, event = unique_agents$status), Surv.rsp.new = Surv(time = test$survival_time_actual, event = test$status), lpnew = predict(cox_model, newdata=test), times = seq(0, 1.5, 0.1))
+
+
+
+
+
 
 
 
