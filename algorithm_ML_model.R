@@ -62,11 +62,13 @@ unique_agents$survival_time <- unique_agents$event_time - unique_agents$Time
 
 #### Create Random Survival Forest Model
 # Standard: nodesize set to 10% of the training data sample size
-rf <- rfsrc(Surv(time = survival_time, event = status) ~ Age + Gender + Race + Syringe_source + Drug_in_degree + Drug_out_degree + current_total_network_size + Daily_injection_intensity + Fraction_recept_sharing + chicago_community_name, data = unique_agents, nodesize = round(nrow(unique_agents)/10, digits = 0))
+rf <- rfsrc(Surv(time = survival_time, event = status) ~ Age + Gender + Syringe_source + Drug_in_degree + Drug_out_degree + current_total_network_size + Daily_injection_intensity + Fraction_recept_sharing + chicago_community_name, data = unique_agents, nodesize = round(nrow(unique_agents)/10, digits = 0))
 
-# Best model: Not supported by literature, but produces best results for algorithm
-rf_best <- rfsrc(Surv(time = survival_time, event = status) ~ Age + Gender + Race + Syringe_source + Drug_in_degree + Drug_out_degree + current_total_network_size + Daily_injection_intensity + Fraction_recept_sharing + chicago_community_name, data = unique_agents, nodesize = 150)
+# Best model supported by Qiu et al. (A Comparison Study of Machine Learning (Random Survival Forest) and Classic Statistic (Cox Proportional Hazards) for Predicting Progression in High-Grade Glioma after Proton and Carbon Ion Radiotherapy)
+rf_best <- rfsrc(Surv(time = survival_time, event = status) ~ Age + Gender + Syringe_source + Drug_in_degree + Drug_out_degree + current_total_network_size + Daily_injection_intensity + Fraction_recept_sharing + chicago_community_name, data = unique_agents, ntree = 100, mtry = 3)
 
+# Ideal model only changing nodesize
+#rf_best <- rfsrc(Surv(time = survival_time, event = status) ~ Age + Gender + Syringe_source + Drug_in_degree + Drug_out_degree + current_total_network_size + Daily_injection_intensity + Fraction_recept_sharing + chicago_community_name, data = unique_agents, nodesize = 150)
 
 
 
@@ -87,6 +89,16 @@ agents_infected_total <- agents_infected_total[!duplicated(agents_infected_total
 colnames(agents_infected_total) <- c("infected_time", "Agent")
 test <- merge(test, agents_infected_total, by = "Agent", all.x = TRUE)
 
+# Identify when agents were deactivated
+test_deactivated_time <- test[test$Event == "deactivated",]
+test_deactivated_time <- test_deactivated_time[, c("Time","Agent")]
+colnames(test_deactivated_time) <- c("deactivated_time", "Agent")
+test <- merge(test, test_deactivated_time, by = "Agent", all.x = TRUE)
+
+# Set status variable according to HCV infection
+test$status <- 0
+test$status[is.na(test$infected_time) == FALSE] <- 1
+
 # Reduce test data to unique agents at the time they were activated and only those who are HCV susceptible
 test <- test[test$Event == "activated",]
 test <- test[test$HCV == "susceptible",]
@@ -105,8 +117,22 @@ test$Race <- factor(test$Race)
 test$Syringe_source <- factor(test$Syringe_source)
 test$chicago_community_name <- factor(test$chicago_community_name)
 
-# Apply the trained Cox Model to the test set using the predict function, producing a dataframe of survival probabilities (the probability they do NOT become infected)
-prediction_data <- predict.rfsrc(rf_best, test, na.action = "na.impute")
+# Select the correct time for the "event_time"
+# Hierarchy: infected > deactivated
+test$event_time <- NA
+test[is.na(test$event_time) == TRUE,]$event_time <- test[is.na(test$event_time) == TRUE,]$infected_time
+test[is.na(test$event_time) == TRUE,]$event_time <- test[is.na(test$event_time) == TRUE,]$deactivated_time
+
+# Some agents never reach any of these outcomes (are activated but nothing else happens). Thus they remain susceptible through the entire simulation, and their event time is assigned as 9.858 (last tick of simulation)
+
+test[is.na(test$event_time) == TRUE,]$event_time <- 9.858
+test$survival_time_actual <- test$event_time - test$Time
+
+# Set desired time for prediction
+test$survival_time <- 1.5
+
+# Apply the trained RSF Model to the test set using the predict function, producing a dataframe of infection probabilities
+prediction_data <- predict.rfsrc(rf_test, test, na.action = "na.impute")
 time_interest <- which(abs(prediction_data$time.interest-1.5)==min(abs(prediction_data$time.interest-1.5)))
 probabilities <- 1 - prediction_data$survival[,time_interest]
 
@@ -119,8 +145,9 @@ colnames(test)[colnames(test) == "probabilities"] <- "infected_probability"
 mean(test$infected_probability)
 table(test$infected_by_trialend)[2] / (table(test$infected_by_trialend)[1] + table(test$infected_by_trialend)[2])
 
-# Evaluation of the RSF model using AUC
-roc(data = test, response = infected_by_trialend, predictor = infected_probability)
+# Evaluation of the RSF model using C-index
+library(pec)
+cindex(rf_test, Surv(survival_time_actual, status) ~ 1, data=test)
 
 
 

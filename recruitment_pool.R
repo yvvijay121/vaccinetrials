@@ -51,3 +51,13 @@ recruitment_pool$chicago_community_name <- factor(recruitment_pool$chicago_commu
 # Label if each agent is susceptible or not for use in the algorithm. Realistic algorithm will not know if they are susceptible or not until they undergo a "test," after which they will be removed and replaced with another agent who is not susceptible if they are determined to not be susceptible.
 recruitment_pool$susceptible <- 0
 recruitment_pool$susceptible[recruitment_pool$HCV == "susceptible"] <- 1
+
+
+
+
+
+
+
+# Read CNEP data for use in demographic comparisons and as target population
+cnep <- read.csv("cnep_plus_all_2018.02.13.csv")
+cnep_susceptible <- cnep[cnep$HCV == "susceptible",]
