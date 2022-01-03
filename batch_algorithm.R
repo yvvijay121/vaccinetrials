@@ -52,7 +52,7 @@ create_demographic_target <- function(race_numbers, gender_numbers){
 recruitment_per_batch <- 50
 recruited_per_batch <- 5
 trial_followup_years <- 1.5
-backlog_batch_limit <- 5
+attrition_prob <- 0.2
 recruitment_dataset <- recruitment_pool
 #model_used <- cox_model
 model_used <- rf_best
@@ -220,14 +220,14 @@ while(nrow(algorithm_output) < req_sample_size) {
   
   backlog <- tail(total_considered, nrow(total_considered)-recruited_per_batch)
   
-  # Delete gender_diff, race_diff, demographic_score, and score from the backlog for proper looping
-  backlog <- backlog[, -which(names(backlog) %in% c("gender_diff", "race_diff", "demographic_score", "score"))]
+  # Assign a random number 0-100 to each agent to determine attrition
+  backlog$attrition <- runif(nrow(backlog), min = 0, max = 1)
   
-  # Increase batches_elapsed_backlog for agents left in backlog
-  backlog$batches_elapsed_backlog <- backlog$batches_elapsed_backlog + 1
+  # Use attrition probability to determine which agents get removed based on randomly generated number
+  backlog <- backlog[backlog$attrition <= attrition_prob,]
   
-  # Eliminate agents who have been in backlog for more than backlog_batch_limit batches
-  backlog <- backlog[backlog$batches_elapsed_backlog <= backlog_batch_limit,]
+  # Delete gender_diff, race_diff, demographic_score, score, and attrition from the backlog for proper looping
+  backlog <- backlog[, -which(names(backlog) %in% c("gender_diff", "race_diff", "demographic_score", "score", "attrition"))]
   
   # Adjust weights after each batch, up to a certain limit
   if(incidence_weight > incidence_weight_min) {
@@ -302,7 +302,7 @@ legend(x = "topleft", legend = c("Algorithm", "Susceptible"), fill = c("#4D4D4D"
 #########################################################################
 ################################ FUNCTION ###############################
 #########################################################################
-algorithm <- function(recruitment_dataset, model_used, recruitment_per_batch, recruited_per_batch, trial_followup_years, req_sample_size, work_constraint, incidence_weight_min = 25, backlog_batch_limit = 5, high_demo_error_adjustment = FALSE, ssmethod = "cohen") {
+algorithm <- function(recruitment_dataset, model_used, recruitment_per_batch, recruited_per_batch, trial_followup_years, req_sample_size, work_constraint, incidence_weight_min = 25, attrition_prob = 0.2, high_demo_error_adjustment = FALSE, ssmethod = "cohen") {
   start_time <- proc.time()
   
   # Reestimation point will be set by default at 1/2 work constraint for Cox, 1/3 for ML, but can be adjusted:
@@ -366,14 +366,14 @@ algorithm <- function(recruitment_dataset, model_used, recruitment_per_batch, re
     
     backlog <- tail(total_considered, nrow(total_considered)-recruited_per_batch)
     
-    # Delete gender_diff, race_diff, demographic_score, and score from the backlog for proper looping
-    backlog <- backlog[, -which(names(backlog) %in% c("gender_diff", "race_diff", "demographic_score", "score"))]
+    # Assign a random number 0-100 to each agent to determine attrition
+    backlog$attrition <- runif(nrow(backlog), min = 0, max = 1)
     
-    # Increase batches_elapsed_backlog for agents left in backlog
-    backlog$batches_elapsed_backlog <- backlog$batches_elapsed_backlog + 1
+    # Use attrition probability to determine which agents get removed based on randomly generated number
+    backlog <- backlog[backlog$attrition <= attrition_prob,]
     
-    # Eliminate agents who have been in backlog for more than backlog_batch_limit batches
-    backlog <- backlog[backlog$batches_elapsed_backlog <= backlog_batch_limit,]
+    # Delete gender_diff, race_diff, demographic_score, score, and attrition from the backlog for proper looping
+    backlog <- backlog[, -which(names(backlog) %in% c("gender_diff", "race_diff", "demographic_score", "score", "attrition"))]
     
     # Adjust weights after each batch, up to a certain limit
     if(incidence_weight > incidence_weight_min) {
@@ -437,7 +437,6 @@ mean(algorithm_output$infected_probability)
 
 
 
-algorithm_output <- algorithm(recruitment_dataset = recruitment_pool, model_used = rf_best, recruitment_per_batch = 50, recruited_per_batch = 5, trial_followup_years = 1.5, req_sample_size = 800, work_constraint = 8000)
 
 
 #######################################################################
