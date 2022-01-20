@@ -55,7 +55,7 @@ trial_followup_years <- 1.5
 attrition_prob <- 0.2
 recruitment_dataset <- recruitment_pool
 #model_used <- cox_model
-model_used <- rf_best
+model_used <- rsf_model
 
 # Sample size constraints:
 req_sample_size <- 800
@@ -67,9 +67,9 @@ incidence_weight_min <- 25
 high_demo_error_adjustment <- FALSE
 
 # Create all the functions corresponding to each step in the algorithm:
-apply_cox <- function(data, cox) {
+apply_cox <- function(data, cox, follow_up_time) {
   data$status <- NA
-  data$survival_time <- trial_followup_years
+  data$survival_time <- follow_up_time
   probabilities <- as.data.frame(predict(cox, data, type = "survival"))
   colnames(probabilities) <- "survival_probability"
   output <- cbind(data, probabilities)
@@ -189,7 +189,7 @@ while(nrow(algorithm_output) < req_sample_size) {
   
   # Apply the Cox model to the agents recruited for the day
   if(class(model_used) == "coxph"){
-    eligible_postmodel <- apply_cox(eligible, model_used)
+    eligible_postmodel <- apply_cox(eligible, model_used, trial_followup_years)
   }
   
   if(class(model_used)[1] == "rfsrc"){
@@ -221,7 +221,7 @@ while(nrow(algorithm_output) < req_sample_size) {
   backlog <- tail(total_considered, nrow(total_considered)-recruited_per_batch)
   
   # Assign a random number 0-100 to each agent to determine attrition
-  backlog$attrition <- runif(nrow(backlog), min = 0, max = 1)
+  backlog$attrition <- runif(nrow(backlog))
   
   # Use attrition probability to determine which agents get removed based on randomly generated number
   backlog <- backlog[backlog$attrition <= attrition_prob,]
@@ -335,7 +335,7 @@ algorithm <- function(recruitment_dataset, model_used, recruitment_per_batch, re
     
     # Apply the Cox model to the agents recruited for the day
     if(class(model_used)[1] == "coxph"){
-      eligible_postmodel <- apply_cox(eligible, model_used)
+      eligible_postmodel <- apply_cox(eligible, model_used, trial_followup_years)
     }
     
     if(class(model_used)[1] == "rfsrc"){
@@ -367,7 +367,7 @@ algorithm <- function(recruitment_dataset, model_used, recruitment_per_batch, re
     backlog <- tail(total_considered, nrow(total_considered)-recruited_per_batch)
     
     # Assign a random number 0-100 to each agent to determine attrition
-    backlog$attrition <- runif(nrow(backlog), min = 0, max = 1)
+    backlog$attrition <- runif(nrow(backlog))
     
     # Use attrition probability to determine which agents get removed based on randomly generated number
     backlog <- backlog[backlog$attrition <= attrition_prob,]
@@ -413,7 +413,7 @@ algorithm <- function(recruitment_dataset, model_used, recruitment_per_batch, re
 
 
 # Testing functionality of algorithm function
-algorithm_output <- algorithm(recruitment_dataset = recruitment_pool, model_used = rf_best, recruitment_per_batch = 50, recruited_per_batch = 5, trial_followup_years = 1.5, req_sample_size = 800, work_constraint = 8000)
+algorithm_output <- algorithm(recruitment_dataset = recruitment_pool, model_used = rsf_model, recruitment_per_batch = 50, recruited_per_batch = 5, trial_followup_years = 1.5, req_sample_size = 800, work_constraint = 8000)
 
 
 # After running algorithm, calculate actual incidence based on simulation data and predicted incidence
@@ -438,21 +438,21 @@ mean(algorithm_output$infected_probability)
 
 
 
-
 #######################################################################
 ############################### ANALYSIS ##############################
 #######################################################################
 ############ USED TO RUN MULTIPLE ALGORITHMS FOR ANALYSIS #############
-number_of_runs <- 10
 
 # Initiation of output data frames:
 expectation_vs_reality <- data.frame()
 race_analysis <- data.frame()
 gender_analysis <- data.frame()
 
+number_of_runs <- 100
+
 while(nrow(expectation_vs_reality) < number_of_runs) {
   
-  algorithm_output <- algorithm(recruitment_dataset = recruitment_pool, model_used = rf_best, recruitment_per_batch = 50, recruited_per_batch = 5, trial_followup_years = 1.5, req_sample_size = 800, work_constraint = 8000)
+  algorithm_output <- algorithm(recruitment_dataset = recruitment_pool, model_used = rsf_model, recruitment_per_batch = 50, recruited_per_batch = 5, trial_followup_years = 1.5, req_sample_size = 800, work_constraint = 8000)
   
   newrow <- matrix(c(table(algorithm_output$infected_by_trialend)[2]/sum(table(algorithm_output$infected_by_trialend)), mean(algorithm_output$infected_probability), table(algorithm_output$chronic_by_trialend)[2]/sum(table(algorithm_output$chronic_by_trialend))), nrow = 1)
   colnames(newrow) <- c("actual", "expected", "chronic")
