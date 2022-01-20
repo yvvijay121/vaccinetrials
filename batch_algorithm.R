@@ -407,14 +407,16 @@ algorithm <- function(recruitment_dataset, model_used, recruitment_per_batch, re
   # Print elapsed time for algorithm completion
   print(proc.time()-start_time)
   
-  # Return the algorithm_output data frame
-  return(algorithm_output)
+  # Construct list to be returned
+  output_list <- list("algorithm_output" = algorithm_output, "agent_count" = agent_count)
+  return(output_list)
 }
 
 
 # Testing functionality of algorithm function
-algorithm_output <- algorithm(recruitment_dataset = recruitment_pool, model_used = rsf_model, recruitment_per_batch = 50, recruited_per_batch = 5, trial_followup_years = 1.5, req_sample_size = 800, work_constraint = 8000)
+algorithm_list <- algorithm(recruitment_dataset = recruitment_pool, model_used = rsf_model, recruitment_per_batch = 50, recruited_per_batch = 5, trial_followup_years = 1.5, req_sample_size = 800, work_constraint = 8000)
 
+algorithm_output <- algorithm_list$algorithm_output
 
 # After running algorithm, calculate actual incidence based on simulation data and predicted incidence
 table(algorithm_output$infected_by_trialend)[2]/nrow(algorithm_output)
@@ -452,10 +454,12 @@ number_of_runs <- 100
 
 while(nrow(expectation_vs_reality) < number_of_runs) {
   
-  algorithm_output <- algorithm(recruitment_dataset = recruitment_pool, model_used = rsf_model, recruitment_per_batch = 50, recruited_per_batch = 5, trial_followup_years = 1.5, req_sample_size = 800, work_constraint = 8000)
+  algorithm_list <- algorithm(recruitment_dataset = recruitment_pool, model_used = cox_model, recruitment_per_batch = 50, recruited_per_batch = 5, trial_followup_years = 1.5, req_sample_size = 800, work_constraint = 8000)
   
-  newrow <- matrix(c(table(algorithm_output$infected_by_trialend)[2]/sum(table(algorithm_output$infected_by_trialend)), mean(algorithm_output$infected_probability), table(algorithm_output$chronic_by_trialend)[2]/sum(table(algorithm_output$chronic_by_trialend))), nrow = 1)
-  colnames(newrow) <- c("actual", "expected", "chronic")
+  algorithm_output <- algorithm_list$algorithm_output
+  
+  newrow <- matrix(c(table(algorithm_output$infected_by_trialend)[2]/sum(table(algorithm_output$infected_by_trialend)), mean(algorithm_output$infected_probability), table(algorithm_output$chronic_by_trialend)[2]/sum(table(algorithm_output$chronic_by_trialend)), algorithm_list$agent_count), nrow = 1)
+  colnames(newrow) <- c("actual", "expected", "chronic", "agent_count")
   expectation_vs_reality <- rbind(expectation_vs_reality, newrow)
   
   racerow <- matrix(table(algorithm_output$Race)/nrow(algorithm_output), nrow = 1)
@@ -482,6 +486,9 @@ h <- 2*asin(sqrt(p1))-2*asin(sqrt(p2))
 # Representativeness Max Error Calculation:
 1-abs((colMeans(gender_analysis)-target_gender_comp)/target_gender_comp)
 1-abs((colMeans(race_analysis)-target_race_comp)/target_race_comp)
+
+# Mean Number of Agents Screened Before Reaching Req. SS
+mean(expectation_vs_reality$agent_count)
 
 ## GRAPHS - Gender, Race
 # Gender
