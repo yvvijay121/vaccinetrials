@@ -39,8 +39,8 @@ create_demographic_target <- function(race_numbers, gender_numbers){
 # target_gender_comp <- target_pop$gender/sum(target_pop$gender)
 # target_race_comp <- target_pop$race/sum(target_pop$race)
 
-## Target pop set to test case for extreme differences between target population and available population
-# target_pop <- create_demographic_target(c(40, 30, 20, 10), c(50, 50))
+# # Target pop set to test case for extreme differences between target population and available population
+# target_pop <- create_demographic_target(c(33, 33, 33, 1), c(50, 50))
 # target_gender_comp <- target_pop$gender/sum(target_pop$gender)
 # target_race_comp <- target_pop$race/sum(target_pop$race)
 
@@ -302,7 +302,7 @@ legend(x = "topleft", legend = c("Algorithm", "Susceptible"), fill = c("#4D4D4D"
 #########################################################################
 ################################ FUNCTION ###############################
 #########################################################################
-algorithm <- function(recruitment_dataset, model_used, recruitment_per_batch, recruited_per_batch, trial_followup_years, req_sample_size, work_constraint, incidence_weight_min = 25, attrition_prob = 0.2, high_demo_error_adjustment = FALSE, ssmethod = "cohen") {
+algorithm <- function(recruitment_dataset, model_used, recruitment_per_batch, recruited_per_batch, trial_followup_years, req_sample_size, work_constraint, incidence_weight_min = 25, attrition_prob = 0.2, high_demo_error_adjustment = FALSE, ssmethod = "cohen", print_diagnostics = FALSE) {
   start_time <- proc.time()
   
   # Reestimation point will be set by default at 1/2 work constraint for Cox, 1/3 for ML, but can be adjusted:
@@ -387,7 +387,9 @@ algorithm <- function(recruitment_dataset, model_used, recruitment_per_batch, re
         weight_change_per_batch <- weight_change_per_batch + error_adjustment
       }
       
+      if(print_diagnostics){
       print(paste("Current Weights:", incidence_weight, demographic_weight, "Weight Change Next Batch:", weight_change_per_batch))
+      }
     }
     
     # Calculate new estimated sample size requirement at the prespecified reestimation point
@@ -398,7 +400,9 @@ algorithm <- function(recruitment_dataset, model_used, recruitment_per_batch, re
     }
     
     # Print current agent count
-    print(paste("Current number of agents screened:", agent_count))
+    if(print_diagnostics){
+      print(paste("Current number of agents screened:", agent_count))
+    }
     
     # Print warning statement in console if work constraint is destined to be violated
     print_warning(work_constraint, agent_count, recruitment_per_batch, recruited_per_batch, algorithm_output)
@@ -449,12 +453,13 @@ mean(algorithm_output$infected_probability)
 expectation_vs_reality <- data.frame()
 race_analysis <- data.frame()
 gender_analysis <- data.frame()
+demographic_incidence <- data.frame()
 
 number_of_runs <- 100
 
 while(nrow(expectation_vs_reality) < number_of_runs) {
   
-  algorithm_list <- algorithm(recruitment_dataset = recruitment_pool, model_used = cox_model, recruitment_per_batch = 50, recruited_per_batch = 5, trial_followup_years = 1.5, req_sample_size = 800, work_constraint = 8000)
+  algorithm_list <- algorithm(recruitment_dataset = recruitment_pool, model_used = cox_model, recruitment_per_batch = 50, recruited_per_batch = 5, trial_followup_years = 1.5, req_sample_size = 800, work_constraint = 8000, print_diagnostics = TRUE)
   
   algorithm_output <- algorithm_list$algorithm_output
   
@@ -470,8 +475,27 @@ while(nrow(expectation_vs_reality) < number_of_runs) {
   race_analysis <- rbind(race_analysis, racerow)
   gender_analysis <- rbind(gender_analysis, genderrow)
   
+  race_incidence_actual <- matrix(tapply(algorithm_output$infected_by_trialend, algorithm_output$Race, sum)/table(algorithm_output$Race), nrow = 1)
+  colnames(race_incidence_actual) <- c("hispanic_actual", "nhblack_actual", "nhwhite_actual", "other_actual")
+  race_incidence_expected <- matrix(tapply(algorithm_output$infected_probability, algorithm_output$Race, mean), nrow = 1)
+  colnames(race_incidence_expected) <- c("hispanic_expected", "nhblack_expected", "nhwhite_expected", "other_expected")
+  race_incidence <- cbind(race_incidence_actual, race_incidence_expected)
+  
+  gender_incidence_actual <- matrix(tapply(algorithm_output$infected_by_trialend, algorithm_output$Gender, sum)/table(algorithm_output$Gender), nrow = 1)
+  colnames(gender_incidence_actual) <- c("female_actual", "male_actual")
+  gender_incidence_expected <- matrix(tapply(algorithm_output$infected_probability, algorithm_output$Gender, mean), nrow = 1)
+  colnames(gender_incidence_expected) <- c("female_expected", "male_expected")
+  gender_incidence <- cbind(gender_incidence_actual, gender_incidence_expected)
+  
+  demographic_incidence_row <- cbind(race_incidence, gender_incidence)
+  demographic_incidence <- rbind(demographic_incidence, demographic_incidence_row)
+  
   print(paste("Completed runs:", nrow(expectation_vs_reality)))
 }
+
+# # Write output data to csv for future analysis
+# fulldata <- cbind(expectation_vs_reality, race_analysis, gender_analysis, demographic_incidence)
+# write.csv(fulldata, "rsf_demo_extreme_adjustment.csv")
 
 # Incidence Calculations:
 mean(expectation_vs_reality$actual)
