@@ -42,11 +42,21 @@ recruitment_pool[is.na(recruitment_pool$chronic_time_after_start),]$chronic_time
 recruitment_pool$chronic_by_trialend <- 0
 recruitment_pool[recruitment_pool$chronic_time_after_start <= 1.5, ]$chronic_by_trialend <- 1
 
+# Stratify age categories for demographic matching
+recruitment_pool$Age_Category <- NA
+recruitment_pool[recruitment_pool$Age < 20,]$Age_Category <- "<20"
+recruitment_pool[recruitment_pool$Age >= 20 & recruitment_pool$Age < 30,]$Age_Category <- "20-29"
+recruitment_pool[recruitment_pool$Age >= 30 & recruitment_pool$Age < 40,]$Age_Category <- "30-39"
+recruitment_pool[recruitment_pool$Age >= 40 & recruitment_pool$Age < 50,]$Age_Category <- "40-49"
+recruitment_pool[recruitment_pool$Age >= 50,]$Age_Category <- "49+"
+
+
 # Reclassify recruitment pool variables as factors if applicable
 recruitment_pool$Gender <- factor(recruitment_pool$Gender)
 recruitment_pool$Race <- factor(recruitment_pool$Race)
 recruitment_pool$Syringe_source <- factor(recruitment_pool$Syringe_source)
 recruitment_pool$chicago_community_name <- factor(recruitment_pool$chicago_community_name)
+recruitment_pool$Age_Category <- factor(recruitment_pool$Age_Category)
 
 # Label if each agent is susceptible or not for use in the algorithm. Realistic algorithm will not know if they are susceptible or not until they undergo a "test," after which they will be removed and replaced with another agent who is not susceptible if they are determined to not be susceptible.
 recruitment_pool$susceptible <- 0
@@ -61,3 +71,11 @@ recruitment_pool$susceptible[recruitment_pool$HCV == "susceptible"] <- 1
 # Read CNEP data for use in demographic comparisons and as target population
 cnep <- read.csv("cnep_plus_all_2018.02.13.csv")
 cnep_susceptible <- cnep[cnep$HCV == "susceptible",]
+
+# Stratify age categories in CNEP data for demographic matching
+cnep_susceptible$Age_Category <- NA
+cnep_susceptible[cnep_susceptible$Age < 20,]$Age_Category <- "<20"
+cnep_susceptible[cnep_susceptible$Age >= 20 & cnep_susceptible$Age < 30,]$Age_Category <- "20-29"
+cnep_susceptible[cnep_susceptible$Age >= 30 & cnep_susceptible$Age < 40,]$Age_Category <- "30-39"
+cnep_susceptible[cnep_susceptible$Age >= 40 & cnep_susceptible$Age < 50,]$Age_Category <- "40-49"
+cnep_susceptible[cnep_susceptible$Age >= 50,]$Age_Category <- "49+"
