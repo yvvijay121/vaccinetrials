@@ -1,0 +1,16 @@
+The files "universal_cox.rds" and "universal_rsf.rds" are non-region specific versions of the Cox Proportional Hazards model
+and the Random Survival Forest models that were trained using Chicago PWID data. The feature variables that were used to
+train these models are:
+	- Age (Numerical)
+	- Gender (Categorical; levels: [male, female])
+	- Syringe Source, whether or not the candidate utilizes harm reduction programs (Categorical; levels: [HR, nonHR])
+	- Drug_in_degree, the number of PWID who give the candidate drugs/injection equipment (Numerical)
+	- Drug_out_degree, the number of PWID who this candidate gives drugs/injection equipment to (Numerical)
+	- current_total_network_size, the total number of people in the candidate's network (Numerical)
+	- Daily_injection_intensity, the number of daily injection for a given candidate (Numerical)
+	- Fraction_recept_sharing, the fraction of injections that involve receiving drugs or injection equipment from another
+	  person in the network (Numerical)
+
+To use these models, download the desired RDS file to the local machine. In R, set the directory to the location of the
+downloaded RDS file, and use the readRDS() function in R to store the model in a variable. The model can be used to predict
+infection probability using the relevant R predict function for candidates with known values for the above feature variables.
