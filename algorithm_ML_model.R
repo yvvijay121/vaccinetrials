@@ -71,6 +71,13 @@ rsf_model <- rfsrc(Surv(time = survival_time, event = status) ~ Age + Gender + S
 # Universal RSF model
 rsf_universal <- rfsrc(Surv(time = survival_time, event = status) ~ Age + Gender + Syringe_source + Drug_in_degree + Drug_out_degree + current_total_network_size + Daily_injection_intensity + Fraction_recept_sharing, data = unique_agents, ntree = 100, mtry = 3)
 
+# Infection Weighted RSF model
+unique_agents_weighted <- unique_agents
+unique_agents_weighted$casewt <- 10
+unique_agents_weighted$casewt[unique_agents_weighted$infected_time-unique_agents_weighted$Time <= 1.5] <- 9
+
+rsf_infect_weighted <- rfsrc(Surv(time = survival_time, event = status) ~ Age + Gender + Syringe_source + Drug_in_degree + Drug_out_degree + current_total_network_size + Daily_injection_intensity + Fraction_recept_sharing + chicago_community_name, data = unique_agents_weighted, ntree = 100, mtry = 3, case.wt = unique_agents_weighted$casewt)
+
 
 
 
