@@ -66,6 +66,11 @@ cox_model <- coxph(Surv(time = survival_time, event = status) ~ Age + Gender + S
 
 
 
+
+
+
+
+
 ############################# Universal Cox #############################
 summary(cox_model)
 
@@ -76,7 +81,23 @@ universal_cox <- coxph(Surv(time = survival_time, event = status) ~ Age + Gender
 
 
 
+
+######################## Cox with infected case weighting ########################
+unique_agents_weighted <- unique_agents
+unique_agents_weighted$casewt <- 10
+unique_agents_weighted$casewt[unique_agents_weighted$infected_time-unique_agents_weighted$Time <= 1.5] <- 9
+
+infect_weighted_cox <- coxph(Surv(time = survival_time, event = status) ~ Age + Gender + Syringe_source + Drug_in_degree + Drug_out_degree + current_total_network_size + Daily_injection_intensity + Fraction_recept_sharing + chicago_community_name, data = unique_agents_weighted, weights = casewt, x=TRUE)
+
+
+
+
+
 ########################## Test for Cox Model ########################## 
+# Declare which model is tested
+tested_model <- infect_weighted_cox
+
+
 # Create test data frame using the remaining 80% of data not used to train the Cox Model
 test <- simulation_data[mod(simulation_data$DBLabel, 5) != 0,]
 
@@ -129,7 +150,7 @@ test$survival_time_actual <- test$event_time - test$Time
 test$survival_time <- 1.5
 
 # Apply the trained Cox Model to the test set using the predict function, producing a dataframe of survival probabilities (the probability they do NOT become infected)
-probabilities <- as.data.frame(predict(cox_model, test, type = "survival"))
+probabilities <- as.data.frame(predict(tested_model, test, type = "survival"))
 colnames(probabilities) <- "survival_probability"
 
 # Combine the data frame of survival probabilities with the test data frame
@@ -143,6 +164,9 @@ test$infected_probability <- 1-test$survival_probability
 mean(test$infected_probability)
 table(test$infected_by_trialend)[2] / (table(test$infected_by_trialend)[1] + table(test$infected_by_trialend)[2])
 
+# Actual incidence (infected by 1.5 years) of the test data: 0.02447092
+# Predicted incidence using cox_model: 0.02460811
+# Predicted incidence using infect_weighted_cox: 0.042853
 
 
 
@@ -154,15 +178,14 @@ table(test$infected_by_trialend)[2] / (table(test$infected_by_trialend)[1] + tab
 
 
 
-
-# Model Evaluation using survAUC library
-library(survAUC)
-
-# AUC estimator proposed by Chambless and Diao
-AUC.cd(Surv.rsp = Surv(time = unique_agents$survival_time, event = unique_agents$status), Surv.rsp.new = Surv(time = test$survival_time_actual, event = test$status), lp = predict(cox_model), lpnew = predict(cox_model, newdata=test), times = seq(0, 1.5, 0.1))
-
-# AUC estimator proposed by Uno et al.
-AUC.uno(Surv.rsp = Surv(time = unique_agents$survival_time, event = unique_agents$status), Surv.rsp.new = Surv(time = test$survival_time_actual, event = test$status), lpnew = predict(cox_model, newdata=test), times = seq(0, 1.5, 0.1))
+# # Model Evaluation using survAUC library
+# library(survAUC)
+# 
+# # AUC estimator proposed by Chambless and Diao
+# AUC.cd(Surv.rsp = Surv(time = unique_agents$survival_time, event = unique_agents$status), Surv.rsp.new = Surv(time = test$survival_time_actual, event = test$status), lp = predict(cox_model), lpnew = predict(cox_model, newdata=test), times = seq(0, 1.5, 0.1))
+# 
+# # AUC estimator proposed by Uno et al.
+# AUC.uno(Surv.rsp = Surv(time = unique_agents$survival_time, event = unique_agents$status), Surv.rsp.new = Surv(time = test$survival_time_actual, event = test$status), lpnew = predict(cox_model, newdata=test), times = seq(0, 1.5, 0.1))
 
 
 
@@ -176,7 +199,8 @@ AUC.uno(Surv.rsp = Surv(time = unique_agents$survival_time, event = unique_agent
 # Model Evaluation using C-index
 library(pec)
 cindex(cox_model, Surv(survival_time_actual, status) ~ 1, data=test)
-
+cindex(universal_cox, Surv(survival_time_actual, status) ~ 1, data=test)
+cindex(infect_weighted_cox, Surv(survival_time_actual, status) ~ 1, data=test)
 
 
 
