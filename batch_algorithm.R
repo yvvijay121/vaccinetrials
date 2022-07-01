@@ -476,9 +476,6 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
       eligible_postmodel <- apply_rsf(eligible, model_used, trial_followup_years)
     }
     
-    # Eliminate agents who are not susceptible
-    eligible_postmodel <- eligible_postmodel[eligible_postmodel$susceptible == 1,]
-    
     # Add batches_elapsed_backlog to each agent to denote how many batches have passed since they have been in backlog. Initial value = 0.
     eligible_postmodel$batches_elapsed_backlog <- 0
     
@@ -498,13 +495,31 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
     # Rank agents by overall score
     total_considered <- total_considered[order(total_considered$score, decreasing = TRUE),]
     
-    # Recruit the top [recruited_per_batch] agents from total_considered, and add the rest back to the backlog
+    # Consider the top [recruited_per_batch] agents from total_considered
     recruited <- head(total_considered, recruited_per_batch)
+    
+    # Check for positives and replace agents
+    replaced <- 0
+    while(min(recruited[,"susceptible"]) == 0){
+      # New variable for indexing new candidates to replace non-susceptible candidates
+      previndex <- recruited_per_batch + 1 + replaced
+      # New variable to count the number of replaced candidates from the batch; also used for indexing
+      replaced <- replaced + length(which(recruited$susceptible==0))
+      # Remove non-susceptible candidates from recruited candidates list
+      recruited <- recruited[-which(recruited$susceptible==0),]
+      # New variable for indexing new candidates
+      endindex <- recruited_per_batch + replaced
+      # Add the next highest scoring candidate that has not yet been considered
+      recruited <- rbind(recruited, total_considered[previndex:endindex,])
+    }
+    
+    # Recruit identified candidates
     algorithm_output <- rbind(algorithm_output, recruited)
     
-    backlog <- tail(total_considered, nrow(total_considered)-recruited_per_batch)
+    # Add remaining candidates to backlog
+    backlog <- tail(total_considered, nrow(total_considered)-recruited_per_batch-replaced)
     
-    # Assign a random number 0-100 to each agent to determine attrition
+    # Assign a random number 0-1 to each agent to determine attrition
     backlog$attrition <- runif(nrow(backlog))
     
     # Use attrition probability to determine which agents get removed based on randomly generated number
