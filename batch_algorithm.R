@@ -1,8 +1,21 @@
-# BEFORE running algorithm, run the code in cox_model.R to load the Cox Model or algorithm_ML_model.R to load the RSF Model, and recruitment_pool.R to load the recruitment dataset and target population used in the algorithm.
+# Set the working directory to the directory with the CSV of results data
+setwd("C:/Users/richa/OneDrive - University of Illinois at Chicago/Stats/HCV")
 
 # Load additional packages used in the algorithm
 library(pwr)
 library(tidyverse)
+
+# Read CNEP data for use in demographic comparisons and as target population
+cnep <- read.csv("cnep_plus_all_2018.02.13.csv")
+cnep_susceptible <- cnep[cnep$HCV == "susceptible",]
+
+# Stratify age categories in CNEP data for demographic matching
+cnep_susceptible$Age_Category <- NA
+cnep_susceptible[cnep_susceptible$Age < 20,]$Age_Category <- "<20"
+cnep_susceptible[cnep_susceptible$Age >= 20 & cnep_susceptible$Age < 30,]$Age_Category <- "20-29"
+cnep_susceptible[cnep_susceptible$Age >= 30 & cnep_susceptible$Age < 40,]$Age_Category <- "30-39"
+cnep_susceptible[cnep_susceptible$Age >= 40 & cnep_susceptible$Age < 50,]$Age_Category <- "40-49"
+cnep_susceptible[cnep_susceptible$Age >= 50,]$Age_Category <- "49+"
 
 ###########################################################################
 ## Find the demographic composition of the target population
@@ -21,321 +34,35 @@ colnames(target_age_comp) <- c("<20", "20-29", "30-39", "40-49", "49+")
 
 # Target demographic includes gender, race, and age
 target_demo <- cbind(target_gender_comp, target_race_comp, target_age_comp)
-# 
-# # Function to create custom demographic targets (OUTDATED; needs update)
-# create_demographic_target <- function(race_numbers, gender_numbers){
-#   hispanic_raw <- race_numbers[1]
-#   nhblack_raw <- race_numbers[2]
-#   nhwhite_raw <- race_numbers[3]
-#   other_raw <- race_numbers[4]
-# 
-#   female_raw <- gender_numbers[1]
-#   male_raw <- gender_numbers[2]
-# 
-#   race_df <- as.data.frame(matrix(data = c(rep.int("Hispanic", hispanic_raw), rep.int("NHBlack", nhblack_raw), rep.int("NHWhite", nhwhite_raw), rep.int("Other", other_raw)), ncol = 1))
-# 
-#   gender_df <- as.data.frame(matrix(data = c(rep.int("Female", female_raw), rep.int("Male", male_raw)), ncol = 1))
-# 
-#   output_race_table <- table(race_df)
-#   output_gender_table <- table(gender_df)
-# 
-#   return_list <- list("race" = output_race_table, "gender" = output_gender_table)
-# 
-#   return(return_list)
-# }
-
-## Target pop set to CDC 2019 Surveillance Report data
-# target_pop <- create_demographic_target(c(350, 267, 2683, 119), c(1653, 2471))
-# target_gender_comp <- target_pop$gender/sum(target_pop$gender)
-# target_race_comp <- target_pop$race/sum(target_pop$race)
-
-# # Target pop set to test case for extreme differences between target population and available population
-# target_pop <- create_demographic_target(c(33, 33, 33, 1), c(50, 50))
-# target_gender_comp <- target_pop$gender/sum(target_pop$gender)
-# target_race_comp <- target_pop$race/sum(target_pop$race)
-
-
-###########################################################################
-##################### FINAL VERSION OF BATCH ALGORITHM ####################
-###########################################################################
-
-recruitment_per_batch <- 50
-recruited_per_batch <- 5
-trial_followup_years <- 1.5
-attrition_prob <- 0.2
-recruitment_dataset <- recruitment_pool
-#model_used <- cox_model
-model_used <- rsf_model
-
-# Sample size constraints:
-req_sample_size <- 800
-work_constraint <- 8000
-ssmethod <- "cohen"
-
-# Setting recruitment parameters:
-incidence_weight_min <- 25
-high_demo_error_adjustment <- FALSE
-
-# Create all the functions corresponding to each step in the algorithm:
-apply_cox <- function(data, cox, follow_up_time) {
-  data$status <- NA
-  data$survival_time <- follow_up_time
-  probabilities <- as.data.frame(predict(cox, data, type = "survival"))
-  colnames(probabilities) <- "survival_probability"
-  output <- cbind(data, probabilities)
-  output$infected_probability <- 1-output$survival_probability
-  
-  return(output)
-}
-
-apply_rsf <- function(data, model, follow_up_time) {
-  prediction_data <- predict.rfsrc(model, data, na.action = "na.impute")
-  time_interest <- which(abs(prediction_data$time.interest-follow_up_time)==min(abs(prediction_data$time.interest-follow_up_time)))
-  probabilities <- as.data.frame(prediction_data$survival[,time_interest])
-  colnames(probabilities) <- "survival_probability"
-  output <- cbind(data, probabilities)
-  output$infected_probability <- 1-output$survival_probability
-  
-  return(output)
-}
-
-compute_demographic_score <- function(data, currently_in_trial, demos, props) {
-  # Initating demographic matrix for calculation of demographic scores
-  demo_matrix_list <- list()
-  for(i in 1:length(demos)){
-    demo_matrix_list[[i]] <- levels(data[,demos[i]])
-  }
-  demo_matrix <- expand.grid(demo_matrix_list, stringsAsFactors = TRUE)
-  colnames(demo_matrix) <- demos
-  demo_matrix <- as.matrix(demo_matrix)
-  
-  # Calculating demographic scores
-  if(nrow(currently_in_trial) == 0) {
-    output <- data
-    output$demographic_score <- 0
-  } else {
-    # temp <- currently_in_trial[,demos]
-    # change Apr. 29 - add as.data.frame to allow for matching of 1 demographic
-    temp <- as.data.frame(currently_in_trial[,demos])
-    output_props <- NULL
-    for(i in 1:length(demos)){
-      output_props <- cbind(output_props, t(data.matrix(table(temp[,i])/nrow(temp))))
-    }
-    
-    prop_differences <- props[,order(colnames(props))]-output_props[,order(colnames(output_props))]
-    demographic_score <- c()
-    for(i in 1:dim(demo_matrix)[1]){
-      demographic_score[i] <- sum(prop_differences[demo_matrix[i,]])
-    }
-    demo_matrix <- as.data.frame(cbind(demo_matrix, demographic_score))
-    
-    reduced_data <- data[,c("Agent", demos)]
-    scores_by_agents <- merge(reduced_data, demo_matrix, by = demos)
-    scores_by_agents <- scores_by_agents[, !names(scores_by_agents) %in% demos]
-    output <- merge(data, scores_by_agents, by = "Agent")
-    output$demographic_score <- as.double(output$demographic_score)
-  }
-  return(output)
-}
-
-reestimate_n <- function(currently_in_trial, sig.level = 0.05, power = .80, ve = 0.6, method = "cohen") {
-  if(method == "cohen"){
-    p1 <- mean(currently_in_trial$infected_probability)
-    p2 <- (1-ve) * p1
-    h <- 2*asin(sqrt(p1))-2*asin(sqrt(p2))
-    new_n <- 2*ceiling(pwr.2p.test(h = h, sig.level = sig.level, power = power, alternative="greater")$n)
-  }
-  
-  if(method == "kelsey"){
-    z_a <- qnorm(sig.level/2, lower.tail = F)
-    z_b <- qnorm(1-power, lower.tail = F)
-    p1 <- mean(currently_in_trial$infected_probability)
-    p2 <- (1-ve) * p1
-    p <- (p1+p2)/2
-    new_n <- 2*ceiling((((z_a+z_b)^2)*(p)*(1-p)*2)/((p1-p2)^2))
-  }
-  
-  if(method == "schoenfeld"){
-    z_a <- qnorm(sig.level/2, lower.tail = F)
-    z_b <- qnorm(1-power, lower.tail = F)
-    theta <- (1-ve)
-    d <- 4*(((z_a+z_b)^2)/(log(theta)^2))
-    p1 <- mean(currently_in_trial$infected_probability)
-    p2 <- (1-ve) * p1
-    p <- (p1+p2)/2
-    new_n <- ceiling(d/p)
-  }
-  
-  return(new_n)
-}
-
-print_warning <- function(work_constraint, agent_count, recruitment_per_batch, recruited_per_batch, algorithm_output){
-  work_remaining <- work_constraint - agent_count
-  remaining_agents_needed <- reestimate_n(algorithm_output) - nrow(algorithm_output)
-  remaining_batches_needed <- remaining_agents_needed/recruited_per_batch
-  if((remaining_batches_needed * recruitment_per_batch) > work_remaining){
-    print("WARNING: With current predicted incidence, work constraint is destined to be exceeded.")
-  }
-}
 
 
 
 #########################################################################
-############################### ALGORITHM ###############################
+########################### PREDICTEE FUNCTION ##########################
 #########################################################################
-
-start_time <- proc.time()
-
-# Reestimation point will be set by default at 1/2 work constraint for Cox, 1/3 for ML, but can be adjusted:
-if(class(model_used) == "coxph"){
-  reestimation_point <- work_constraint/2
-}
-
-if(class(model_used)[1] == "rfsrc"){
-  reestimation_point <- work_constraint/3
-}
-reestimate_completion <- 0
-
-# Initiating variables
-algorithm_output <- data.frame()
-backlog <- data.frame()
-agent_count <- 0
-batch_count <- 0
-
-# Setting the initial recruitment weights:
-incidence_weight <- 100
-demographic_weight <- 0
-weight_change_per_batch <- (incidence_weight-incidence_weight_min)/(req_sample_size/recruited_per_batch)
-
-while(nrow(algorithm_output) < req_sample_size) {
-  
-  # Sample recruitment_per_day number of agents at a time
-  eligible <- recruitment_dataset[sample(nrow(recruitment_dataset), recruitment_per_batch),]
-  agent_count <- agent_count + nrow(eligible)
-  batch_count <- batch_count + 1
-  
-  # Apply the Cox model to the agents recruited for the day
-  if(class(model_used) == "coxph"){
-    eligible_postmodel <- apply_cox(eligible, model_used, trial_followup_years)
-  }
-  
-  if(class(model_used)[1] == "rfsrc"){
-    eligible_postmodel <- apply_rsf(eligible, model_used, trial_followup_years)
-  }
-  
-  # Eliminate agents who are not susceptible
-  eligible_postmodel <- eligible_postmodel[eligible_postmodel$susceptible == 1,]
-  
-  # Add batches_elapsed_backlog to each agent to denote how many batches have passed since they have been in backlog. Initial value = 0.
-  eligible_postmodel$batches_elapsed_backlog <- 0
-  
-  # Combine this batch and backlog into total_considered
-  total_considered <- rbind(backlog, eligible_postmodel)
-  
-  # Calculate demographic difference scores for each agent
-  total_considered <- compute_demographic_score(total_considered, algorithm_output, target_race_comp, target_gender_comp)
-  
-  # Apply weights to generate a single score
-  total_considered$score <- ((total_considered$infected_probability * incidence_weight) + (total_considered$demographic_score * demographic_weight))
-  
-  # Rank agents by overall score
-  total_considered <- total_considered[order(total_considered$score, decreasing = TRUE),]
-  
-  # Recruit the top [recruited_per_batch] agents from total_considered, and add the rest back to the backlog
-  recruited <- head(total_considered, recruited_per_batch)
-  algorithm_output <- rbind(algorithm_output, recruited)
-  
-  backlog <- tail(total_considered, nrow(total_considered)-recruited_per_batch)
-  
-  # Assign a random number 0-100 to each agent to determine attrition
-  backlog$attrition <- runif(nrow(backlog))
-  
-  # Use attrition probability to determine which agents get removed based on randomly generated number
-  backlog <- backlog[backlog$attrition <= attrition_prob,]
-  
-  # Delete gender_diff, race_diff, demographic_score, score, and attrition from the backlog for proper looping
-  backlog <- backlog[, -which(names(backlog) %in% c("gender_diff", "race_diff", "demographic_score", "score", "attrition"))]
-  
-  # Adjust weights after each batch, up to a certain limit
-  if(incidence_weight > incidence_weight_min) {
-    incidence_weight <- incidence_weight - weight_change_per_batch
-    demographic_weight <- demographic_weight + weight_change_per_batch
-    blinded_n <- reestimate_n(algorithm_output, method = ssmethod)
-    weight_change_per_batch <- (incidence_weight-incidence_weight_min)/(blinded_n/recruited_per_batch)
-    
-    if(high_demo_error_adjustment == TRUE){
-      error_adjustment <- 1-min(c(1-abs((table(algorithm_output$Gender)/nrow(algorithm_output)-target_gender_comp)/target_gender_comp),1-abs((table(algorithm_output$Race)/nrow(algorithm_output)-target_race_comp)/target_race_comp)))
-      weight_change_per_batch <- weight_change_per_batch + error_adjustment
-    }
-    
-    print(paste("Current Weights:", incidence_weight, demographic_weight, "Weight Change Next Batch:", weight_change_per_batch))
-  }
-  
-  # Calculate new estimated sample size requirement at the prespecified reestimation point
-  if(agent_count >= reestimation_point && reestimate_completion == 0) {
-    req_sample_size <- reestimate_n(algorithm_output, method = ssmethod)
-    print(paste("Sample size reestimated to be:", req_sample_size))
-    reestimate_completion <- 1
-  }
-  
-  # Print current agent count
-  print(paste("Current number of agents screened:", agent_count))
-  
-  # Print warning statement in console if work constraint is destined to be violated
-  print_warning(work_constraint, agent_count, recruitment_per_batch, recruited_par_batch, algorithm_output)
-}
-
-# Print elapsed time for algorithm completion
-print(proc.time()-start_time)
-
-#########################################################################
-#########################################################################
-#########################################################################
-
-
-
-
-# After running algorithm, calculate actual incidence based on simulation data and predicted incidence
-table(algorithm_output$infected_by_trialend)[2]/nrow(algorithm_output)
-mean(algorithm_output$infected_probability)
-
-## GRAPHS - Gender, Race
-# Gender
-gender <- rbind(table(algorithm_output$Gender)/nrow(algorithm_output), target_gender_comp)
-rownames(gender) = c("Algorithm", "Susceptible")
-barplot(gender, xlab = "Gender", ylab = "Percent", beside=TRUE)
-legend(x = "topleft", legend = c("Algorithm", "Susceptible"), fill = c("#4D4D4D", "#E6E6E6"), cex = 0.60)
-
-# Race
-race <- rbind(table(algorithm_output$Race)/nrow(algorithm_output), target_race_comp)
-rownames(race) = c("Algorithm", "Susceptible")
-barplot(race,xlab = "Race", ylab = "Percent", beside=TRUE)
-legend(x = "topleft", legend = c("Algorithm", "Susceptible"), fill = c("#4D4D4D", "#E6E6E6"), cex = 0.60)
-
-# Representativeness Max Error Calculation:
-1-abs((table(algorithm_output$Gender)/nrow(algorithm_output)-target_gender_comp)/target_gender_comp)
-1-abs((table(algorithm_output$Race)/nrow(algorithm_output)-target_race_comp)/target_race_comp)
-
-
-
-
-
-
-
-
-
-
-
-#########################################################################
-################################ FUNCTION ###############################
-#########################################################################
+# PREDICTEE recruitment algorithm is defined as a function with multiple parameters defining the the recruitment population, predictive models, and other PREDICTEE parameters. An explanation of each parameter is as follows:
+# recruitment_dataset - the recruitment pool from which PWID are sampled from
+# model_used - the survival analysis (Cox or RSF) model that is used to predict probability of HCV infection by trial_followup_years
+# target_demographics - a vector delineating the demographic groups being matched
+# target_props - a vector delineating the target proportion for each demographic group
+# recruitment_per_batch - the value B, the number of of PWID in a batch
+# recruited_per_batch - the value R, the number of PWID from each batch that are recruited
+# trial_followup_years - the follow up period for the simulated trial, which is used for prediction of infection probability with the survival analysis model
+# req_sample_size - an estimated value for required sample size based on conventional recruitment methods (such as in-network recruitment)
+# work_constraint - calculated as a function of B, R, and required sample size, or set to another user-defined value. See Appendix SM.D.ii for more detail
+# incidence_weight_min - the minimum value for the incidence weight
+# attrition_prob - the probability that a PWID in the backlog will be deleted (simulating attrition)
+# high_demo_error_adjustment - T/F value used if there is a larger than normal demographic adjustment needed (see Appendix SM.C.i)
+# ssmethod - equation used for sample size re-estimation calculations
+# print_diagnostics - T/F value used only for simulations purposes to print simulation details
 algorithm <- function(recruitment_dataset, model_used, target_demographics, target_props, recruitment_per_batch, recruited_per_batch, trial_followup_years, req_sample_size, work_constraint, incidence_weight_min = 25, attrition_prob = 0.2, high_demo_error_adjustment = FALSE, ssmethod = "cohen", print_diagnostics = FALSE) {
-  # Throw error of number of target groups does not equal number of matched groups
-  if(length(unlist(sapply(recruitment_dataset[,target_demographics], levels))) != length(target_props)){
+  # Throw error if number of target groups does not equal number of matched groups
+  if((length(unlist(sapply(recruitment_dataset[,target_demographics], levels))) != length(target_props)) & (!is.null(target_demographics))){
     stop("Number of target groups does not equal number of matched groups")
   }
   
   # Create all the functions corresponding to each step in the algorithm:
+  # function uses the Cox model to predict the probability of HCV infection for PWID in a provided data frame at a certain follow_up_time 
   apply_cox <- function(data, cox, follow_up_time) {
     data$status <- NA
     data$survival_time <- follow_up_time
@@ -347,6 +74,7 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
     return(output)
   }
   
+  # function uses the RSF model to predict the probability of HCV infection for PWID in a provided data frame at a certain follow_up_time 
   apply_rsf <- function(data, model, follow_up_time) {
     prediction_data <- predict.rfsrc(model, data, na.action = "na.impute")
     time_interest <- which(abs(prediction_data$time.interest-follow_up_time)==min(abs(prediction_data$time.interest-follow_up_time)))
@@ -358,6 +86,7 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
     return(output)
   }
   
+  # function used to calculate the demographic portion of PWID scores for PWID within a given data frame using the demographic of PWID already recruited to the trial cohort currently_in_trial and the target demographic proportions
   compute_demographic_score <- function(data, currently_in_trial, demos, props) {
     # Initating demographic matrix for calculation of demographic scores
     demo_matrix_list <- list()
@@ -368,13 +97,11 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
     colnames(demo_matrix) <- demos
     demo_matrix <- as.matrix(demo_matrix)
     
-    # Calculating demographic scores
+    # Calculating demographic scores by using the difference between demographic proportions currently in trial and demographic composition of the target cohort
     if(nrow(currently_in_trial) == 0) {
       output <- data
       output$demographic_score <- 0
     } else {
-      # temp <- currently_in_trial[,demos]
-      # change Apr. 29 - add as.data.frame to allow for matching of 1 demographic
       temp <- as.data.frame(currently_in_trial[,demos])
       output_props <- NULL
       for(i in 1:length(demos)){
@@ -391,13 +118,15 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
       reduced_data <- data[,c("Agent", demos)]
       scores_by_agents <- merge(reduced_data, demo_matrix, by = demos)
       scores_by_agents <- scores_by_agents[, !names(scores_by_agents) %in% demos]
-      output <- merge(data, scores_by_agents, by = "Agent")
+      output <- left_join(data, scores_by_agents, by = "Agent")
       output$demographic_score <- as.double(output$demographic_score)
     }
     return(output)
   }
   
+  # function re-estimated the required sample size using the current trial cohort data frame currently_in_trial
   reestimate_n <- function(currently_in_trial, sig.level = 0.05, power = .80, ve = 0.6, method = "cohen") {
+    # Cohen method of sample size re-estimation
     if(method == "cohen"){
       p1 <- mean(currently_in_trial$infected_probability)
       p2 <- (1-ve) * p1
@@ -405,6 +134,7 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
       new_n <- 2*ceiling(pwr.2p.test(h = h, sig.level = sig.level, power = power, alternative="greater")$n)
     }
     
+    # Kelsey method of sample size re-estimation
     if(method == "kelsey"){
       z_a <- qnorm(sig.level/2, lower.tail = F)
       z_b <- qnorm(1-power, lower.tail = F)
@@ -414,6 +144,7 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
       new_n <- 2*ceiling((((z_a+z_b)^2)*(p)*(1-p)*2)/((p1-p2)^2))
     }
     
+    # Schoenfeld method of sample size re-estimation
     if(method == "schoenfeld"){
       z_a <- qnorm(sig.level/2, lower.tail = F)
       z_b <- qnorm(1-power, lower.tail = F)
@@ -428,6 +159,7 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
     return(new_n)
   }
   
+  # Outputs a warning if, based on current trial cohort, the work constraint will be exceeded based on trial parameters
   print_warning <- function(work_constraint, agent_count, recruitment_per_batch, recruited_per_batch, algorithm_output){
     work_remaining <- work_constraint - agent_count
     remaining_agents_needed <- reestimate_n(algorithm_output) - nrow(algorithm_output)
@@ -437,6 +169,7 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
     }
   }
   
+  # Record start time of the simulation for optimization purposes
   start_time <- proc.time()
   
   # Reestimation point will be set by default at 1/2 work constraint for Cox, 1/3 for ML, but can be adjusted:
@@ -535,11 +268,13 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
       blinded_n <- reestimate_n(algorithm_output, method = ssmethod)
       weight_change_per_batch <- (incidence_weight-incidence_weight_min)/(blinded_n/recruited_per_batch)
       
+      # Additional weight adjustment if the demographic error is very large and more emphasis wants to be put on demographics
       if(high_demo_error_adjustment == TRUE){
         error_adjustment <- 1-min(c(1-abs((table(algorithm_output$Gender)/nrow(algorithm_output)-target_gender_comp)/target_gender_comp),1-abs((table(algorithm_output$Race)/nrow(algorithm_output)-target_race_comp)/target_race_comp)))
         weight_change_per_batch <- weight_change_per_batch + error_adjustment
       }
       
+      # Output to track progression of simulation
       if(print_diagnostics){
         print(paste("Current Weights:", incidence_weight, demographic_weight, "Weight Change Next Batch:", weight_change_per_batch))
       }
@@ -569,212 +304,3 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
   return(output_list)
 }
 
-
-# Testing functionality of algorithm function
-algorithm_list <- algorithm(recruitment_dataset = recruitment_pool, model_used = cox_model, target_demographics = c("Gender", "Race", "Age_Category"), target_props = target_demo, recruitment_per_batch = 50, recruited_per_batch = 5, trial_followup_years = 1.5, req_sample_size = 800, work_constraint = 8000, print_diagnostics = TRUE)
-
-
-algorithm_output <- algorithm_list$algorithm_output
-
-# After running algorithm, calculate actual incidence based on simulation data and predicted incidence
-table(algorithm_output$infected_by_trialend)[2]/nrow(algorithm_output)
-mean(algorithm_output$infected_probability)
-
-#########################################################################
-#########################################################################
-#########################################################################
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#######################################################################
-############################### ANALYSIS ##############################
-#######################################################################
-############ USED TO RUN MULTIPLE ALGORITHMS FOR ANALYSIS #############
-####################### WITHOUT AGE DEMOGRAPHIC #######################
-
-# Initiation of output data frames:
-expectation_vs_reality <- data.frame()
-race_analysis <- data.frame()
-gender_analysis <- data.frame()
-demographic_incidence <- data.frame()
-complete_data <- data.frame()
-
-number_of_runs <- 100
-
-while(nrow(expectation_vs_reality) < number_of_runs) {
-  
-  # Run the actual algorithm and store raw results in algorithm_output
-  algorithm_list <- algorithm(recruitment_dataset = recruitment_pool, model_used = rsf_model, target_demographics = c("Gender", "Race"), target_props = target_demo, recruitment_per_batch = 50, recruited_per_batch = 5, trial_followup_years = 1.5, req_sample_size = 800, work_constraint = 8000)
-  
-  algorithm_output <- algorithm_list$algorithm_output
-  complete_data <- rbind(complete_data, algorithm_output)
-  
-  # Calculate incidence results and agent count, and store them in a matrix
-  newrow <- matrix(c(table(algorithm_output$infected_by_trialend)[2]/sum(table(algorithm_output$infected_by_trialend)), mean(algorithm_output$infected_probability), table(algorithm_output$chronic_by_trialend)[2]/sum(table(algorithm_output$chronic_by_trialend)), algorithm_list$agent_count), nrow = 1)
-  colnames(newrow) <- c("actual", "expected", "chronic", "agent_count")
-  expectation_vs_reality <- rbind(expectation_vs_reality, newrow)
-  
-  # Calculate demographic results and store them in a matrix
-  racerow <- matrix(table(algorithm_output$Race)/nrow(algorithm_output), nrow = 1)
-  colnames(racerow) <- c("Hispanic", "NHBlack", "NHWhite", "Other")
-  genderrow <- matrix(table(algorithm_output$Gender)/nrow(algorithm_output), nrow = 1)
-  colnames(genderrow) <- c("Female", "Male")
-  
-  race_analysis <- rbind(race_analysis, racerow)
-  gender_analysis <- rbind(gender_analysis, genderrow)
-  
-  # Calculate incidence results within each demographic group and store them in a matrix
-  race_incidence_actual <- matrix(tapply(algorithm_output$infected_by_trialend, algorithm_output$Race, sum)/table(algorithm_output$Race), nrow = 1)
-  colnames(race_incidence_actual) <- c("hispanic_actual", "nhblack_actual", "nhwhite_actual", "other_actual")
-  race_incidence_expected <- matrix(tapply(algorithm_output$infected_probability, algorithm_output$Race, mean), nrow = 1)
-  colnames(race_incidence_expected) <- c("hispanic_expected", "nhblack_expected", "nhwhite_expected", "other_expected")
-  race_incidence <- cbind(race_incidence_actual, race_incidence_expected)
-  
-  gender_incidence_actual <- matrix(tapply(algorithm_output$infected_by_trialend, algorithm_output$Gender, sum)/table(algorithm_output$Gender), nrow = 1)
-  colnames(gender_incidence_actual) <- c("female_actual", "male_actual")
-  gender_incidence_expected <- matrix(tapply(algorithm_output$infected_probability, algorithm_output$Gender, mean), nrow = 1)
-  colnames(gender_incidence_expected) <- c("female_expected", "male_expected")
-  gender_incidence <- cbind(gender_incidence_actual, gender_incidence_expected)
-  
-  demographic_incidence_row <- cbind(race_incidence, gender_incidence)
-  demographic_incidence <- rbind(demographic_incidence, demographic_incidence_row)
-  
-  print(paste("Completed runs:", nrow(expectation_vs_reality)))
-}
-
-# # Write output data to csv for future analysis
-# fulldata <- cbind(expectation_vs_reality, race_analysis, gender_analysis, demographic_incidence)
-# write.csv(fulldata, "rsf_demo_extreme_adjustment.csv")
-
-# # Write complete data to csv for cohort analysis
-# write.csv(complete_data, "complete_cox.csv")
-# write.csv(complete_data, "complete_rsf.csv")
-
-
-# Incidence Calculations:
-mean(expectation_vs_reality$actual)
-mean(expectation_vs_reality$expected)
-
-# Sample Size Calculations:
-p1 <- mean(expectation_vs_reality$actual)
-p2 <- 0.4 * p1
-h <- 2*asin(sqrt(p1))-2*asin(sqrt(p2))
-2*ceiling(pwr.2p.test(h = h, sig.level = 0.05, power = .80, alternative="greater")$n)
-
-# Representativeness Max Error Calculation:
-1-abs((colMeans(gender_analysis)-target_gender_comp)/target_gender_comp)
-1-abs((colMeans(race_analysis)-target_race_comp)/target_race_comp)
-
-# Mean Number of Agents Screened Before Reaching Req. SS
-mean(expectation_vs_reality$agent_count)
-
-## GRAPHS - Gender, Race
-# Gender
-gender_input <- colMeans(gender_analysis)
-gender <- rbind(gender_input, target_gender_comp)
-rownames(gender) = c("Algorithm", "Susceptible")
-barplot(gender, xlab = "Gender", ylab = "Percent", beside=TRUE)
-legend(x = "topleft", legend = c("Algorithm", "Susceptible"), fill = c("#4D4D4D", "#E6E6E6"), cex = 0.60)
-
-# Race
-race_input <- colMeans(race_analysis)
-race <- rbind(race_input, target_race_comp)
-rownames(race) = c("Algorithm", "Susceptible")
-barplot(race,xlab = "Race", ylab = "Percent", beside=TRUE)
-legend(x = "topleft", legend = c("Algorithm", "Susceptible"), fill = c("#4D4D4D", "#E6E6E6"), cex = 0.60)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#######################################################################
-############################### ANALYSIS ##############################
-#######################################################################
-############ USED TO RUN MULTIPLE ALGORITHMS FOR ANALYSIS #############
-######################### WITH AGE DEMOGRAPHIC ########################
-
-# Initiation of output data frames:
-expectation_vs_reality <- data.frame()
-race_analysis <- data.frame()
-gender_analysis <- data.frame()
-age_analysis <- data.frame()
-demographic_incidence <- data.frame()
-
-number_of_runs <- 100
-
-while(nrow(expectation_vs_reality) < number_of_runs) {
-  
-  # Run the actual algorithm and store raw results in algorithm_output
-  algorithm_list <- algorithm(recruitment_dataset = recruitment_pool, model_used = rsf_model, target_demographics = c("Gender", "Race", "Age_Category"), target_props = target_demo, recruitment_per_batch = 50, recruited_per_batch = 5, trial_followup_years = 1.5, req_sample_size = 800, work_constraint = 8000)
-  # algorithm_list <- algorithm(recruitment_dataset = recruitment_pool, model_used = cox_model, target_demographics = NULL, target_props = target_demo, recruitment_per_batch = 50, recruited_per_batch = 5, trial_followup_years = 1.5, req_sample_size = 800, work_constraint = 8000)
-  
-  algorithm_output <- algorithm_list$algorithm_output
-  
-  # Calculate incidence results and agent count, and store them in a matrix
-  newrow <- matrix(c(table(algorithm_output$infected_by_trialend)[2]/sum(table(algorithm_output$infected_by_trialend)), mean(algorithm_output$infected_probability), table(algorithm_output$chronic_by_trialend)[2]/sum(table(algorithm_output$chronic_by_trialend)), algorithm_list$agent_count), nrow = 1)
-  colnames(newrow) <- c("actual", "expected", "chronic", "agent_count")
-  expectation_vs_reality <- rbind(expectation_vs_reality, newrow)
-  
-  # Calculate demographic results and store them in a matrix
-  racerow <- matrix(table(algorithm_output$Race)/nrow(algorithm_output), nrow = 1)
-  colnames(racerow) <- c("Hispanic", "NHBlack", "NHWhite", "Other")
-  genderrow <- matrix(table(algorithm_output$Gender)/nrow(algorithm_output), nrow = 1)
-  colnames(genderrow) <- c("Female", "Male")
-  agerow <- matrix(table(algorithm_output$Age_Category)/nrow(algorithm_output), nrow = 1)
-  colnames(agerow) <- c("<20", "20-29", "30-39", "40-49", "49+")
-  
-  race_analysis <- rbind(race_analysis, racerow)
-  gender_analysis <- rbind(gender_analysis, genderrow)
-  age_analysis <- rbind(age_analysis, agerow)
-  
-  # Calculate incidence results within each demographic group and store them in a matrix
-  race_incidence_actual <- matrix(tapply(algorithm_output$infected_by_trialend, algorithm_output$Race, sum)/table(algorithm_output$Race), nrow = 1)
-  colnames(race_incidence_actual) <- c("hispanic_actual", "nhblack_actual", "nhwhite_actual", "other_actual")
-  race_incidence_expected <- matrix(tapply(algorithm_output$infected_probability, algorithm_output$Race, mean), nrow = 1)
-  colnames(race_incidence_expected) <- c("hispanic_expected", "nhblack_expected", "nhwhite_expected", "other_expected")
-  race_incidence <- cbind(race_incidence_actual, race_incidence_expected)
-  
-  gender_incidence_actual <- matrix(tapply(algorithm_output$infected_by_trialend, algorithm_output$Gender, sum)/table(algorithm_output$Gender), nrow = 1)
-  colnames(gender_incidence_actual) <- c("female_actual", "male_actual")
-  gender_incidence_expected <- matrix(tapply(algorithm_output$infected_probability, algorithm_output$Gender, mean), nrow = 1)
-  colnames(gender_incidence_expected) <- c("female_expected", "male_expected")
-  gender_incidence <- cbind(gender_incidence_actual, gender_incidence_expected)
-  
-  age_incidence_actual <- matrix(tapply(algorithm_output$infected_by_trialend, algorithm_output$Age_Category, sum)/table(algorithm_output$Age_Category), nrow = 1)
-  colnames(age_incidence_actual) <- c("less20_actual", "20to29_actual", "30to39_actual", "40to49_actual", "greater49_actual")
-  age_incidence_expected <- matrix(tapply(algorithm_output$infected_probability, algorithm_output$Age_Category, mean), nrow = 1)
-  colnames(age_incidence_expected) <- c("less20_expected", "20to29_expected", "30to39_expected", "40to49_expected", "greater49_expected")
-  age_incidence <- cbind(age_incidence_actual, age_incidence_expected)
-  
-  demographic_incidence_row <- cbind(race_incidence, gender_incidence, age_incidence)
-  demographic_incidence <- rbind(demographic_incidence, demographic_incidence_row)
-  
-  print(paste("Completed runs:", nrow(expectation_vs_reality)))
-}
-
-# Write output data to csv for future analysis
-fulldata <- cbind(expectation_vs_reality, race_analysis, gender_analysis, age_analysis, demographic_incidence)
-write.csv(fulldata, "") # input file name
