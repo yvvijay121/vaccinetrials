@@ -5,7 +5,7 @@ setwd("C:/Users/richa/OneDrive - University of Illinois at Chicago/Stats/HCV")
 library(pwr)
 library(tidyverse)
 
-# Read CNEP data for use in demographic comparisons and as target population
+# Read CNEP data (real PWID survey data from Chicago) for use in demographic comparisons and as target population
 cnep <- read.csv("cnep_plus_all_2018.02.13.csv")
 cnep_susceptible <- cnep[cnep$HCV == "susceptible",]
 
@@ -304,3 +304,4 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
   return(output_list)
 }
 
+### This algorithm function represents a single simulation of recruitment to an HCV vaccine clinical trial. Our results are derived from 10,000 runs of this simulation to account for random variations in PWID sampling and also implementing cross-validation in the specific set of PWID that is used to train the model vs used in the recruitment pool (see simulations.R file for details on how these were conducted).
