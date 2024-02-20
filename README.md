@@ -1,6 +1,8 @@
 # vaccinetrials
 
-PREDICTEE: Predictive Recruitment and Enrichment method balancing Demographics and Incidence for Clinical Trial Equity and Efficiency.
+PREDICTEE: Predictive Recruitment and Enrichment method balancing Demographics and Incidence for Clinical Trial Equity and Efficiency. 
+- Brief video: https://www.youtube.com/watch?v=FEzjdRtuOwQ
+- Paper: in review
 
 This GitHub repository is the analytical code used to run the simulations for our initial study of the PREDICTEE recruitment method, which will be published under the title "Reducing sample size while improving equity in vaccine clinical trials: a machine learning-based recruitment methodology with application to improving trials of Hepatitis C virus vaccines in people who inject drugs." PREDICTEE aims to optimize recruitment by identifying people who inject drugs (PWID) who have a high probability of becoming acutely infected with HCV, thereby reducing required sample size, while also actively targetting underrepresented demographics, improving clinical trial equity.
 
