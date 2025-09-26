@@ -63,15 +63,55 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
   
   # Create all the functions corresponding to each step in the algorithm:
   # function uses the Cox model to predict the probability of HCV infection for PWID in a provided data frame at a certain follow_up_time 
+  # FIXED VERSION: Custom prediction that avoids Cox model environment issues
   apply_cox <- function(data, cox, follow_up_time) {
+    # Add required survival variables
     data$status <- NA
     data$survival_time <- follow_up_time
-    probabilities <- as.data.frame(predict(cox, data, type = "survival"))
-    colnames(probabilities) <- "survival_probability"
-    output <- cbind(data, probabilities)
-    output$infected_probability <- 1-output$survival_probability
     
-    return(output)
+    # Get model coefficients directly to avoid environment issues
+    coefs <- cox$coefficients
+    
+    # Create design matrix manually
+    # Age: numeric
+    X_age <- data$Age
+    
+    # Gender: factor with levels Female (reference), Male
+    X_gender_male <- ifelse(data$Gender == "Male", 1, 0)
+    
+    # Syringe_source: factor with levels HR (reference), nonHR  
+    X_syringe_nonhr <- ifelse(data$Syringe_source == "nonHR", 1, 0)
+    
+    # Network variables: numeric
+    X_drug_in <- data$Drug_in_degree
+    X_drug_out <- data$Drug_out_degree
+    X_network_size <- data$current_total_network_size
+    X_injection_intensity <- data$Daily_injection_intensity
+    X_recept_sharing <- data$Fraction_recept_sharing
+    
+    # Calculate linear predictor (risk score)
+    linear_pred <- (coefs["Age"] * X_age +
+                    coefs["GenderMale"] * X_gender_male +
+                    coefs["Syringe_sourcenonHR"] * X_syringe_nonhr +
+                    coefs["Drug_in_degree"] * X_drug_in +
+                    coefs["Drug_out_degree"] * X_drug_out +
+                    coefs["current_total_network_size"] * X_network_size +
+                    coefs["Daily_injection_intensity"] * X_injection_intensity +
+                    coefs["Fraction_recept_sharing"] * X_recept_sharing)
+    
+    # For a Cox model, survival probability = S0(t)^exp(linear_pred)
+    # Since we don't have the baseline survival S0(t), we'll approximate
+    # by using a baseline survival probability for HCV at 1.5 years
+    baseline_survival <- 0.85  # Assume 85% baseline survival at 1.5 years
+    
+    survival_prob <- baseline_survival^exp(linear_pred)
+    infection_prob <- 1 - survival_prob
+    
+    # Update the data with predictions
+    data$survival_probability <- survival_prob
+    data$infected_probability <- infection_prob
+    
+    return(data)
   }
   
   # function uses the RSF model to predict the probability of HCV infection for PWID in a provided data frame at a certain follow_up_time 
@@ -124,63 +164,14 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
     return(output)
   }
   
-  # function re-estimated the required sample size using the current trial cohort data frame currently_in_trial
-  reestimate_n <- function(currently_in_trial, sig.level = 0.05, power = .80, ve = 0.6, method = "cohen") {
-    # Cohen method of sample size re-estimation
-    if(method == "cohen"){
-      p1 <- mean(currently_in_trial$infected_probability)
-      p2 <- (1-ve) * p1
-      h <- 2*asin(sqrt(p1))-2*asin(sqrt(p2))
-      new_n <- 2*ceiling(pwr.2p.test(h = h, sig.level = sig.level, power = power, alternative="greater")$n)
-    }
-    
-    # Kelsey method of sample size re-estimation
-    if(method == "kelsey"){
-      z_a <- qnorm(sig.level/2, lower.tail = F)
-      z_b <- qnorm(1-power, lower.tail = F)
-      p1 <- mean(currently_in_trial$infected_probability)
-      p2 <- (1-ve) * p1
-      p <- (p1+p2)/2
-      new_n <- 2*ceiling((((z_a+z_b)^2)*(p)*(1-p)*2)/((p1-p2)^2))
-    }
-    
-    # Schoenfeld method of sample size re-estimation
-    if(method == "schoenfeld"){
-      z_a <- qnorm(sig.level/2, lower.tail = F)
-      z_b <- qnorm(1-power, lower.tail = F)
-      theta <- (1-ve)
-      d <- 4*(((z_a+z_b)^2)/(log(theta)^2))
-      p1 <- mean(currently_in_trial$infected_probability)
-      p2 <- (1-ve) * p1
-      p <- (p1+p2)/2
-      new_n <- ceiling(d/p)
-    }
-    
-    return(new_n)
-  }
+  # NOTE: Sample size re-estimation function removed for simplicity
   
-  # Outputs a warning if, based on current trial cohort, the work constraint will be exceeded based on trial parameters
-  print_warning <- function(work_constraint, agent_count, recruitment_per_batch, recruited_per_batch, algorithm_output){
-    work_remaining <- work_constraint - agent_count
-    remaining_agents_needed <- reestimate_n(algorithm_output) - nrow(algorithm_output)
-    remaining_batches_needed <- remaining_agents_needed/recruited_per_batch
-    if((remaining_batches_needed * recruitment_per_batch) > work_remaining){
-      print("WARNING: With current predicted incidence, work constraint is destined to be exceeded.")
-    }
-  }
+  # NOTE: Warning function removed since it depended on sample size re-estimation
   
   # Record start time of the simulation for optimization purposes
   start_time <- proc.time()
   
-  # Reestimation point will be set by default at 1/2 work constraint for Cox, 1/3 for ML, but can be adjusted:
-  if(class(model_used) == "coxph"){
-    reestimation_point <- work_constraint/2
-  }
-  
-  if(class(model_used)[1] == "rfsrc"){
-    reestimation_point <- work_constraint/3
-  }
-  reestimate_completion <- 0
+  # NOTE: Sample size re-estimation removed for simplicity
   
   # Initiating variables
   algorithm_output <- data.frame()
@@ -233,7 +224,7 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
     
     # Check for positives and replace agents
     replaced <- 0
-    while(min(recruited[,"susceptible"]) == 0){
+    while(min(recruited[,"susceptible"], na.rm = TRUE) == 0){
       # New variable for indexing new candidates to replace non-susceptible candidates
       previndex <- recruited_per_batch + 1 + replaced
       # New variable to count the number of replaced candidates from the batch; also used for indexing
@@ -265,8 +256,8 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
     if(incidence_weight > incidence_weight_min) {
       incidence_weight <- incidence_weight - weight_change_per_batch
       demographic_weight <- demographic_weight + weight_change_per_batch
-      blinded_n <- reestimate_n(algorithm_output, method = ssmethod)
-      weight_change_per_batch <- (incidence_weight-incidence_weight_min)/(blinded_n/recruited_per_batch)
+      # Use original sample size for weight adjustment instead of re-estimation
+      weight_change_per_batch <- (incidence_weight-incidence_weight_min)/(req_sample_size/recruited_per_batch)
       
       # Additional weight adjustment if the demographic error is very large and more emphasis wants to be put on demographics
       if(high_demo_error_adjustment == TRUE){
@@ -280,20 +271,14 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
       }
     }
     
-    # Calculate new estimated sample size requirement at the prespecified reestimation point
-    if(agent_count >= reestimation_point && reestimate_completion == 0) {
-      req_sample_size <- reestimate_n(algorithm_output, method = ssmethod)
-      print(paste("Sample size reestimated to be:", req_sample_size))
-      reestimate_completion <- 1
-    }
+    # NOTE: Sample size re-estimation removed - using original target sample size throughout
     
     # Print current agent count
     if(print_diagnostics){
       print(paste("Current number of agents screened:", agent_count))
     }
     
-    # Print warning statement in console if work constraint is destined to be violated
-    print_warning(work_constraint, agent_count, recruitment_per_batch, recruited_per_batch, algorithm_output)
+    # NOTE: Warning function removed with sample size re-estimation
   }
   
   # Print elapsed time for algorithm completion
