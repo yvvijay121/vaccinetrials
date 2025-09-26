@@ -11,7 +11,7 @@ library(pwr)
 library(tidyverse)
 
 # Set the working directory to the directory with the CSV of data
-setwd("C:/Users/richa/OneDrive - University of Illinois at Chicago/Stats/HCV")
+setwd("~/Documents/Programming_Projects/vaccinetrials")
 
 # Read the CSV file as a data frame and create the training set using 20% of the data.
 simulation_data <- read.csv("events_pool.csv")
@@ -230,7 +230,7 @@ library(tidyverse)
 library(randomForestSRC)
 
 # Set the working directory to the directory with the CSV of data
-setwd("C:/Users/richa/OneDrive - University of Illinois at Chicago/Stats/HCV")
+setwd("~/Documents/Programming_Projects/vaccinetrials")
 
 # Read the CSV file as a data frame and create the training set using 20% of the data.
 simulation_data <- read.csv("events_pool.csv")
@@ -451,7 +451,7 @@ library(pwr)
 library(tidyverse)
 
 # Set the working directory to the directory with the CSV of data
-setwd("C:/Users/richa/OneDrive - University of Illinois at Chicago/Stats/HCV")
+setwd("~/Documents/Programming_Projects/vaccinetrials")
 
 # Read the CSV file as a data frame and create the training set using 20% of the data.
 simulation_data <- read.csv("events_pool.csv")
@@ -665,7 +665,7 @@ library(tidyverse)
 library(randomForestSRC)
 
 # Set the working directory to the directory with the CSV of data
-setwd("C:/Users/richa/OneDrive - University of Illinois at Chicago/Stats/HCV")
+setwd("~/Documents/Programming_Projects/vaccinetrials")
 
 # Read the CSV file as a data frame and create the training set using 20% of the data.
 simulation_data <- read.csv("events_pool.csv")
@@ -871,7 +871,7 @@ library(pwr)
 library(tidyverse)
 
 # Set the working directory to the directory with the CSV of data
-setwd("C:/Users/richa/OneDrive - University of Illinois at Chicago/Stats/HCV")
+setwd("~/Documents/Programming_Projects/vaccinetrials")
 
 # Read the CSV file as a data frame and create the training set using 20% of the data.
 simulation_data <- read.csv("events_pool.csv")
@@ -1085,7 +1085,7 @@ library(tidyverse)
 library(randomForestSRC)
 
 # Set the working directory to the directory with the CSV of data
-setwd("C:/Users/richa/OneDrive - University of Illinois at Chicago/Stats/HCV")
+setwd("~/Documents/Programming_Projects/vaccinetrials")
 
 # Read the CSV file as a data frame and create the training set using 20% of the data.
 simulation_data <- read.csv("events_pool.csv")
@@ -1302,7 +1302,7 @@ library(tidyverse)
 library(pec)
 
 # Set the working directory to the directory with the CSV of data
-setwd("C:/Users/richa/OneDrive - University of Illinois at Chicago/Stats/HCV")
+setwd("~/Documents/Programming_Projects/vaccinetrials")
 
 # Read the CSV file as a data frame and create the training set using 20% of the data.
 simulation_data <- read.csv("events_pool.csv")
@@ -1474,7 +1474,7 @@ library(randomForestSRC)
 library(pec)
 
 # Set the working directory to the directory with the CSV of data
-setwd("C:/Users/richa/OneDrive - University of Illinois at Chicago/Stats/HCV")
+setwd("~/Documents/Programming_Projects/vaccinetrials")
 
 # Read the CSV file as a data frame and create the training set using 20% of the data.
 simulation_data <- read.csv("events_pool.csv")

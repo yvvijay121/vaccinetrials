@@ -1,7 +1,7 @@
 library(magrittr)
 
 # Set the working directory to the directory with the CSV of simulation data. The simulation data is derived from a 10-year run of the HepCEP algorithm
-setwd("C:/Users/richa/OneDrive - University of Illinois at Chicago/Stats/HCV")
+setwd("~/Documents/Programming_Projects/vaccinetrials")
 
 # Read the CSV file as a data frame
 simulation_data <- read.csv("events_pool.csv")

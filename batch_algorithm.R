@@ -1,12 +1,12 @@
 # Set the working directory to the directory with the CSV of results data
-setwd("C:/Users/richa/OneDrive - University of Illinois at Chicago/Stats/HCV")
+setwd("~/Documents/Programming_Projects/vaccinetrials")
 
 # Load additional packages used in the algorithm
 library(pwr)
 library(tidyverse)
 
 # Read CNEP data (real PWID survey data from Chicago) for use in demographic comparisons and as target population
-cnep <- read.csv("cnep_plus_all_2018.02.13.csv")
+cnep <- read.csv("data/cnep_plus_all_2018.02.13.csv")
 cnep_susceptible <- cnep[cnep$HCV == "susceptible",]
 
 # Stratify age categories in CNEP data for demographic matching
