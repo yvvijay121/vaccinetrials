@@ -53,78 +53,18 @@ target_demo <- cbind(target_gender_comp, target_race_comp, target_age_comp)
 # incidence_weight_min - the minimum value for the incidence weight
 # attrition_prob - the probability that a PWID in the backlog will be deleted (simulating attrition)
 # high_demo_error_adjustment - T/F value used if there is a larger than normal demographic adjustment needed (see Appendix SM.C.i)
-# ssmethod - equation used for sample size re-estimation calculations
 # print_diagnostics - T/F value used only for simulations purposes to print simulation details
-algorithm <- function(recruitment_dataset, model_used, target_demographics, target_props, recruitment_per_batch, recruited_per_batch, trial_followup_years, req_sample_size, work_constraint, incidence_weight_min = 25, attrition_prob = 0.2, high_demo_error_adjustment = FALSE, ssmethod = "cohen", print_diagnostics = FALSE) {
+algorithm <- function(recruitment_dataset, model_used, target_demographics, target_props, recruitment_per_batch, recruited_per_batch, trial_followup_years, req_sample_size, work_constraint, incidence_weight_min = 25, attrition_prob = 0.2, high_demo_error_adjustment = FALSE, print_diagnostics = FALSE) {
   # Throw error if number of target groups does not equal number of matched groups
   if((length(unlist(sapply(recruitment_dataset[,target_demographics], levels))) != length(target_props)) & (!is.null(target_demographics))){
     stop("Number of target groups does not equal number of matched groups")
   }
   
-  # Create all the functions corresponding to each step in the algorithm:
-  # function uses the Cox model to predict the probability of HCV infection for PWID in a provided data frame at a certain follow_up_time 
-  # FIXED VERSION: Custom prediction that avoids Cox model environment issues
-  apply_cox <- function(data, cox, follow_up_time) {
-    # Add required survival variables
-    data$status <- NA
-    data$survival_time <- follow_up_time
-    
-    # Get model coefficients directly to avoid environment issues
-    coefs <- cox$coefficients
-    
-    # Create design matrix manually
-    # Age: numeric
-    X_age <- data$Age
-    
-    # Gender: factor with levels Female (reference), Male
-    X_gender_male <- ifelse(data$Gender == "Male", 1, 0)
-    
-    # Syringe_source: factor with levels HR (reference), nonHR  
-    X_syringe_nonhr <- ifelse(data$Syringe_source == "nonHR", 1, 0)
-    
-    # Network variables: numeric
-    X_drug_in <- data$Drug_in_degree
-    X_drug_out <- data$Drug_out_degree
-    X_network_size <- data$current_total_network_size
-    X_injection_intensity <- data$Daily_injection_intensity
-    X_recept_sharing <- data$Fraction_recept_sharing
-    
-    # Calculate linear predictor (risk score)
-    linear_pred <- (coefs["Age"] * X_age +
-                    coefs["GenderMale"] * X_gender_male +
-                    coefs["Syringe_sourcenonHR"] * X_syringe_nonhr +
-                    coefs["Drug_in_degree"] * X_drug_in +
-                    coefs["Drug_out_degree"] * X_drug_out +
-                    coefs["current_total_network_size"] * X_network_size +
-                    coefs["Daily_injection_intensity"] * X_injection_intensity +
-                    coefs["Fraction_recept_sharing"] * X_recept_sharing)
-    
-    # For a Cox model, survival probability = S0(t)^exp(linear_pred)
-    # Since we don't have the baseline survival S0(t), we'll approximate
-    # by using a baseline survival probability for HCV at 1.5 years
-    baseline_survival <- 0.85  # Assume 85% baseline survival at 1.5 years
-    
-    survival_prob <- baseline_survival^exp(linear_pred)
-    infection_prob <- 1 - survival_prob
-    
-    # Update the data with predictions
-    data$survival_probability <- survival_prob
-    data$infected_probability <- infection_prob
-    
-    return(data)
-  }
+  # Load prediction model functions
+  source("prediction_models.R")
   
-  # function uses the RSF model to predict the probability of HCV infection for PWID in a provided data frame at a certain follow_up_time 
-  apply_rsf <- function(data, model, follow_up_time) {
-    prediction_data <- predict.rfsrc(model, data, na.action = "na.impute")
-    time_interest <- which(abs(prediction_data$time.interest-follow_up_time)==min(abs(prediction_data$time.interest-follow_up_time)))
-    probabilities <- as.data.frame(prediction_data$survival[,time_interest])
-    colnames(probabilities) <- "survival_probability"
-    output <- cbind(data, probabilities)
-    output$infected_probability <- 1-output$survival_probability
-    
-    return(output)
-  }
+  # Create all the functions corresponding to each step in the algorithm:
+  # Note: Prediction functions (apply_cox and apply_rsf) are loaded from prediction_models.R
   
   # function used to calculate the demographic portion of PWID scores for PWID within a given data frame using the demographic of PWID already recruited to the trial cohort currently_in_trial and the target demographic proportions
   compute_demographic_score <- function(data, currently_in_trial, demos, props) {

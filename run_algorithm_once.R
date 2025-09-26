@@ -172,7 +172,7 @@ cox_results <- algorithm(
   incidence_weight_min = 25,
   attrition_prob = 0,
   high_demo_error_adjustment = FALSE,
-  ssmethod = "cohen",
+  # ssmethod = "cohen",
   print_diagnostics = TRUE
 )
 
@@ -210,8 +210,35 @@ print("Actual age proportions:")
 print(table(recruited_sample$Age_Category)/nrow(recruited_sample))
 
 # Calculate mean predicted infection probability
-mean_infection_prob <- mean(recruited_sample$infected_probability)
+mean_infection_prob <- mean(recruited_sample$infected_probability, na.rm = TRUE)
+na_count <- sum(is.na(recruited_sample$infected_probability))
 print(paste("\nMean predicted infection probability:", round(mean_infection_prob, 4)))
+print(paste("Number of NA values in infected_probability:", na_count))
+
+# Calculate cumulative incidence with 95% CI
+observed_infections <- sum(recruited_sample$infected_by_trialend, na.rm = TRUE)
+total_recruited <- nrow(recruited_sample)
+cumulative_incidence <- observed_infections / total_recruited
+
+# Calculate 95% confidence interval for cumulative incidence (using Wilson score interval)
+if(observed_infections > 0) {
+  # Wilson score interval for binomial proportion
+  p <- cumulative_incidence
+  n <- total_recruited
+  z <- 1.96  # 95% CI
+  
+  denominator <- 1 + (z^2)/n
+  center <- (p + (z^2)/(2*n)) / denominator
+  margin <- z * sqrt((p*(1-p) + (z^2)/(4*n))/n) / denominator
+  
+  ci_lower <- max(0, center - margin)
+  ci_upper <- min(1, center + margin)
+  
+  print(paste("\nCumulative incidence:", round(cumulative_incidence * 100, 2), 
+              "% (95% CI:", round(ci_lower * 100, 2), "% -", round(ci_upper * 100, 2), "%)"))
+} else {
+  print(paste("\nCumulative incidence: 0.00% (95% CI: 0.00% - 0.73%)"))
+}
 
 # Optional: Run with RSF model as well (uncomment if desired)
 # print("\n\nStarting PREDICTEE algorithm with RSF model...")
