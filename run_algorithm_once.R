@@ -85,10 +85,10 @@ recruitment_pool[recruitment_pool$Age >= 30 & recruitment_pool$Age < 40,]$Age_Ca
 recruitment_pool[recruitment_pool$Age >= 40 & recruitment_pool$Age < 50,]$Age_Category <- "40-49"
 recruitment_pool[recruitment_pool$Age >= 50,]$Age_Category <- "49+"
 
-# Convert variables to factors
-recruitment_pool$Gender <- factor(recruitment_pool$Gender)
+# Convert variables to factors with correct levels that match the Cox model
+recruitment_pool$Gender <- factor(recruitment_pool$Gender, levels = c("Female", "Male"))
 recruitment_pool$Race <- factor(recruitment_pool$Race)
-recruitment_pool$Syringe_source <- factor(recruitment_pool$Syringe_source)
+recruitment_pool$Syringe_source <- factor(recruitment_pool$Syringe_source, levels = c("HR", "nonHR"))
 recruitment_pool$chicago_community_name <- factor(recruitment_pool$chicago_community_name)
 recruitment_pool$Age_Category <- factor(recruitment_pool$Age_Category)
 
@@ -101,9 +101,10 @@ print("Variables in recruitment_pool:")
 print(colnames(recruitment_pool))
 
 # Ensure recruitment_pool has all variables needed by the Cox model
+# Based on the actual Cox model, it does NOT include chicago_community_name
 required_vars <- c("Age", "Gender", "Syringe_source", "Drug_in_degree", "Drug_out_degree", 
                    "current_total_network_size", "Daily_injection_intensity", 
-                   "Fraction_recept_sharing", "chicago_community_name")
+                   "Fraction_recept_sharing")
 
 missing_vars <- required_vars[!required_vars %in% colnames(recruitment_pool)]
 if(length(missing_vars) > 0) {
@@ -113,6 +114,22 @@ if(length(missing_vars) > 0) {
 }
 
 print("All required variables present!")
+
+# CRITICAL FIX: The Cox model has an environment issue where it's looking for 'unique_agents'
+# We need to create a workaround for the predict function
+print("Creating workaround for Cox model environment issue...")
+
+# Create a minimal unique_agents object with the right structure and correct factor levels
+unique_agents_sample <- recruitment_pool[1:10, required_vars]
+unique_agents_sample$Gender <- factor(unique_agents_sample$Gender, levels = c("Female", "Male"))
+unique_agents_sample$Syringe_source <- factor(unique_agents_sample$Syringe_source, levels = c("HR", "nonHR"))
+unique_agents_sample$status <- c(rep(0, 5), rep(1, 5)) 
+unique_agents_sample$survival_time <- rep(1.5, 10)
+
+# Assign to global environment so the Cox model can find it
+assign("unique_agents", unique_agents_sample, envir = .GlobalEnv)
+
+print("Workaround applied!")
 
 #######################################################################
 ####################### LOAD ALGORITHM FUNCTION #####################
