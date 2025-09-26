@@ -23,6 +23,12 @@ setwd("~/Documents/Programming_Projects/vaccinetrials")
 cox_model <- readRDS("universal_cox.rds")
 rsf_model <- readRDS("universal_rsf.rds")
 
+# Check what variables the Cox model expects
+print("Cox model formula:")
+print(formula(cox_model))
+print("Cox model variables:")
+print(names(cox_model$coefficients))
+
 # Load CNEP data for target demographics
 cnep <- read.csv("data/cnep_plus_all_2018.02.13.csv")
 cnep_susceptible <- cnep[cnep$HCV == "susceptible",]
@@ -89,6 +95,24 @@ recruitment_pool$Age_Category <- factor(recruitment_pool$Age_Category)
 # Label susceptible status
 recruitment_pool$susceptible <- 0
 recruitment_pool$susceptible[recruitment_pool$HCV == "susceptible"] <- 1
+
+# Check what variables we have in recruitment_pool
+print("Variables in recruitment_pool:")
+print(colnames(recruitment_pool))
+
+# Ensure recruitment_pool has all variables needed by the Cox model
+required_vars <- c("Age", "Gender", "Syringe_source", "Drug_in_degree", "Drug_out_degree", 
+                   "current_total_network_size", "Daily_injection_intensity", 
+                   "Fraction_recept_sharing", "chicago_community_name")
+
+missing_vars <- required_vars[!required_vars %in% colnames(recruitment_pool)]
+if(length(missing_vars) > 0) {
+  print("Missing variables for Cox model:")
+  print(missing_vars)
+  stop("Required variables missing from recruitment pool")
+}
+
+print("All required variables present!")
 
 #######################################################################
 ####################### LOAD ALGORITHM FUNCTION #####################
