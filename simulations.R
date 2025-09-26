@@ -151,7 +151,7 @@ continuous_gender_analysis <- data.frame()
 continuous_age_analysis <- data.frame()
 continuous_demographic_incidence <- data.frame()
 
-number_of_runs <- 3
+number_of_runs <- 1
 
 while(nrow(batch_expectation_vs_reality) < number_of_runs) {
   

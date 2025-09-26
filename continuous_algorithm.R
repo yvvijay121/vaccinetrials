@@ -156,29 +156,7 @@ continuous_algorithm <- function(recruitment_dataset, model_used, target_demogra
     
     return(priority_score)
   }
-  
-  # Function to print demographic status (for diagnostics)
-  print_demographic_status <- function(counters, target_props, total_recruited) {
-    if(is.null(counters) || total_recruited == 0) return()
     
-    cat("=== DEMOGRAPHIC STATUS ===\n")
-    for(demo_var in target_demographics) {
-      cat(paste("Category:", demo_var, "\n"))
-      for(level_name in names(counters[[demo_var]])) {
-        current_count <- counters[[demo_var]][level_name]
-        current_prop <- current_count / total_recruited
-        target_prop <- target_props[[demo_var]][level_name]
-        difference <- target_prop - current_prop
-        
-        cat(paste("  ", level_name, ": ", current_count, " (", 
-                  round(current_prop * 100, 1), "% current vs ", 
-                  round(target_prop * 100, 1), "% target, diff: ", 
-                  round(difference * 100, 1), "%)\n", sep=""))
-      }
-      cat("\n")
-    }
-  }
-  
   #########################################################################
   ########################### ALGORITHM VARIABLES ########################
   #########################################################################
@@ -212,16 +190,19 @@ continuous_algorithm <- function(recruitment_dataset, model_used, target_demogra
       total_recruited <- nrow(algorithm_output)
       demographic_priority <- calculate_demographic_priority(candidate, demographic_counters, target_proportions, total_recruited)
       
-      # Simple recruitment decision (can be enhanced with more sophisticated logic)
-      # For now, recruit if candidate is susceptible and either:
-      # 1. We have demographic priority (positive score), or 
-      # 2. Random chance (to ensure continuous recruitment)
+      # Enhanced recruitment decision based on new infected probability criteria
+      # Recruit if candidate's infected_probability is above 0.4, or
+      # If demographic priority is positive and infected_probability is above 0.2, or
+      # Random chance (10%) if infected_probability is above 0.1
+
       recruit_candidate <- FALSE
-      
-      if(candidate$susceptible == 1) {
-        if(demographic_priority > 0 || runif(1) < 0.1) {  # 10% base recruitment rate
-          recruit_candidate <- TRUE
-        }
+
+      if(candidate$infected_probability > 0.4) {
+        recruit_candidate <- TRUE
+      } else if(candidate$infected_probability > 0.2 && demographic_priority > 0) {
+        recruit_candidate <- TRUE
+      } else if(candidate$infected_probability > 0.1 && runif(1) < 0.1) {
+        recruit_candidate <- TRUE
       }
       
       # Recruit the candidate if selected

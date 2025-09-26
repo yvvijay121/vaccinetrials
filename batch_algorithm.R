@@ -1,12 +1,12 @@
 # Set the working directory to the directory with the CSV of results data
-setwd("C:/Users/richa/OneDrive - University of Illinois at Chicago/Stats/HCV")
+setwd("~/Documents/Programming_Projects/vaccinetrials")
 
 # Load additional packages used in the algorithm
 library(pwr)
 library(tidyverse)
 
 # Read CNEP data (real PWID survey data from Chicago) for use in demographic comparisons and as target population
-cnep <- read.csv("cnep_plus_all_2018.02.13.csv")
+cnep <- read.csv("data/cnep_plus_all_2018.02.13.csv")
 cnep_susceptible <- cnep[cnep$HCV == "susceptible",]
 
 # Stratify age categories in CNEP data for demographic matching
@@ -53,13 +53,14 @@ target_demo <- cbind(target_gender_comp, target_race_comp, target_age_comp)
 # incidence_weight_min - the minimum value for the incidence weight
 # attrition_prob - the probability that a PWID in the backlog will be deleted (simulating attrition)
 # high_demo_error_adjustment - T/F value used if there is a larger than normal demographic adjustment needed (see Appendix SM.C.i)
-# ssmethod - equation used for sample size re-estimation calculations
 # print_diagnostics - T/F value used only for simulations purposes to print simulation details
-algorithm <- function(recruitment_dataset, model_used, target_demographics, target_props, recruitment_per_batch, recruited_per_batch, trial_followup_years, req_sample_size, work_constraint, incidence_weight_min = 25, attrition_prob = 0.2, high_demo_error_adjustment = FALSE, ssmethod = "cohen", print_diagnostics = FALSE) {
+algorithm <- function(recruitment_dataset, model_used, target_demographics, target_props, recruitment_per_batch, recruited_per_batch, trial_followup_years, req_sample_size, work_constraint, incidence_weight_min = 25, attrition_prob = 0.2, high_demo_error_adjustment = FALSE, print_diagnostics = FALSE) {
   # Throw error if number of target groups does not equal number of matched groups
   if((length(unlist(sapply(recruitment_dataset[,target_demographics], levels))) != length(target_props)) & (!is.null(target_demographics))){
     stop("Number of target groups does not equal number of matched groups")
   }
+  
+  # Load prediction model functions
   
   # Create all the functions corresponding to each step in the algorithm:
   # function uses the Cox model to predict the probability of HCV infection for PWID in a provided data frame at a certain follow_up_time 
@@ -124,63 +125,14 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
     return(output)
   }
   
-  # function re-estimated the required sample size using the current trial cohort data frame currently_in_trial
-  reestimate_n <- function(currently_in_trial, sig.level = 0.05, power = .80, ve = 0.6, method = "cohen") {
-    # Cohen method of sample size re-estimation
-    if(method == "cohen"){
-      p1 <- mean(currently_in_trial$infected_probability)
-      p2 <- (1-ve) * p1
-      h <- 2*asin(sqrt(p1))-2*asin(sqrt(p2))
-      new_n <- 2*ceiling(pwr.2p.test(h = h, sig.level = sig.level, power = power, alternative="greater")$n)
-    }
-    
-    # Kelsey method of sample size re-estimation
-    if(method == "kelsey"){
-      z_a <- qnorm(sig.level/2, lower.tail = F)
-      z_b <- qnorm(1-power, lower.tail = F)
-      p1 <- mean(currently_in_trial$infected_probability)
-      p2 <- (1-ve) * p1
-      p <- (p1+p2)/2
-      new_n <- 2*ceiling((((z_a+z_b)^2)*(p)*(1-p)*2)/((p1-p2)^2))
-    }
-    
-    # Schoenfeld method of sample size re-estimation
-    if(method == "schoenfeld"){
-      z_a <- qnorm(sig.level/2, lower.tail = F)
-      z_b <- qnorm(1-power, lower.tail = F)
-      theta <- (1-ve)
-      d <- 4*(((z_a+z_b)^2)/(log(theta)^2))
-      p1 <- mean(currently_in_trial$infected_probability)
-      p2 <- (1-ve) * p1
-      p <- (p1+p2)/2
-      new_n <- ceiling(d/p)
-    }
-    
-    return(new_n)
-  }
+  # NOTE: Sample size re-estimation function removed for simplicity
   
-  # Outputs a warning if, based on current trial cohort, the work constraint will be exceeded based on trial parameters
-  print_warning <- function(work_constraint, agent_count, recruitment_per_batch, recruited_per_batch, algorithm_output){
-    work_remaining <- work_constraint - agent_count
-    remaining_agents_needed <- reestimate_n(algorithm_output) - nrow(algorithm_output)
-    remaining_batches_needed <- remaining_agents_needed/recruited_per_batch
-    if((remaining_batches_needed * recruitment_per_batch) > work_remaining){
-      print("WARNING: With current predicted incidence, work constraint is destined to be exceeded.")
-    }
-  }
+  # NOTE: Warning function removed since it depended on sample size re-estimation
   
   # Record start time of the simulation for optimization purposes
   start_time <- proc.time()
   
-  # Reestimation point will be set by default at 1/2 work constraint for Cox, 1/3 for ML, but can be adjusted:
-  if(class(model_used) == "coxph"){
-    reestimation_point <- work_constraint/2
-  }
-  
-  if(class(model_used)[1] == "rfsrc"){
-    reestimation_point <- work_constraint/3
-  }
-  reestimate_completion <- 0
+  # NOTE: Sample size re-estimation removed for simplicity
   
   # Initiating variables
   algorithm_output <- data.frame()
@@ -233,7 +185,7 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
     
     # Check for positives and replace agents
     replaced <- 0
-    while(min(recruited[,"susceptible"]) == 0){
+    while(min(recruited[,"susceptible"], na.rm = TRUE) == 0){
       # New variable for indexing new candidates to replace non-susceptible candidates
       previndex <- recruited_per_batch + 1 + replaced
       # New variable to count the number of replaced candidates from the batch; also used for indexing
@@ -265,8 +217,8 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
     if(incidence_weight > incidence_weight_min) {
       incidence_weight <- incidence_weight - weight_change_per_batch
       demographic_weight <- demographic_weight + weight_change_per_batch
-      blinded_n <- reestimate_n(algorithm_output, method = ssmethod)
-      weight_change_per_batch <- (incidence_weight-incidence_weight_min)/(blinded_n/recruited_per_batch)
+      # Use original sample size for weight adjustment instead of re-estimation
+      weight_change_per_batch <- (incidence_weight-incidence_weight_min)/(req_sample_size/recruited_per_batch)
       
       # Additional weight adjustment if the demographic error is very large and more emphasis wants to be put on demographics
       if(high_demo_error_adjustment == TRUE){
@@ -280,20 +232,14 @@ algorithm <- function(recruitment_dataset, model_used, target_demographics, targ
       }
     }
     
-    # Calculate new estimated sample size requirement at the prespecified reestimation point
-    if(agent_count >= reestimation_point && reestimate_completion == 0) {
-      req_sample_size <- reestimate_n(algorithm_output, method = ssmethod)
-      print(paste("Sample size reestimated to be:", req_sample_size))
-      reestimate_completion <- 1
-    }
+    # NOTE: Sample size re-estimation removed - using original target sample size throughout
     
     # Print current agent count
     if(print_diagnostics){
       print(paste("Current number of agents screened:", agent_count))
     }
     
-    # Print warning statement in console if work constraint is destined to be violated
-    print_warning(work_constraint, agent_count, recruitment_per_batch, recruited_per_batch, algorithm_output)
+    # NOTE: Warning function removed with sample size re-estimation
   }
   
   # Print elapsed time for algorithm completion
