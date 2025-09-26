@@ -1,0 +1,50 @@
+[1] "=== BATCH ALGORITHM RESULTS ==="
+[1] "Batch Algorithm - Means of all runs:"
+            actual           expected            chronic        agent_count 
+      9.362641e-02       9.501234e-02       6.559295e-02       4.483333e+03 
+          Hispanic            NHBlack            NHWhite              Other 
+      1.806753e-01       1.434220e-01       6.423657e-01       3.353704e-02 
+            Female               Male                <20              20-29 
+      3.242756e-01       6.757244e-01       5.945788e-02       4.892388e-01 
+             30-39              40-49                49+    hispanic_actual 
+      2.995991e-01       1.286474e-01       2.305692e-02       6.179623e-02 
+    nhblack_actual     nhwhite_actual       other_actual  hispanic_expected 
+      8.222524e-02       1.075899e-01       4.603175e-02       8.211534e-02 
+  nhblack_expected   nhwhite_expected     other_expected      female_actual 
+      4.213298e-02       1.106521e-01       8.954785e-02       1.328498e-01 
+       male_actual    female_expected      male_expected      less20_actual 
+      7.477058e-02       1.336761e-01       7.643292e-02       1.008466e-01 
+     20to29_actual      30to39_actual      40to49_actual   greater49_actual 
+      1.094692e-01       6.974913e-02       9.281537e-02       6.666667e-02 
+   less20_expected    20to29_expected    30to39_expected    40to49_expected 
+      1.116721e-01       1.180559e-01       7.329205e-02       6.234883e-02 
+greater49_expected 
+      2.721146e-02 
+[1] "=== CONTINUOUS ALGORITHM RESULTS ==="
+[1] "Continuous Algorithm - Means of all runs:"
+            actual           expected            chronic        agent_count 
+      3.000000e-02       2.309537e-02       2.208333e-02       2.233000e+03 
+          Hispanic            NHBlack            NHWhite              Other 
+      1.804167e-01       1.558333e-01       6.304167e-01       3.333333e-02 
+            Female               Male                <20              20-29 
+      3.162500e-01       6.837500e-01       4.291667e-02       4.850000e-01 
+             30-39              40-49                49+    hispanic_actual 
+      3.041667e-01       1.341667e-01       3.375000e-02       3.227969e-02 
+    nhblack_actual     nhwhite_actual       other_actual  hispanic_expected 
+      1.335484e-02       3.304004e-02       3.571429e-02       1.963527e-02 
+  nhblack_expected   nhwhite_expected     other_expected      female_actual 
+      1.232335e-02       2.652915e-02       2.700123e-02       3.558391e-02 
+       male_actual    female_expected      male_expected      less20_actual 
+      2.742014e-02       2.983405e-02       1.997564e-02       3.000594e-02 
+     20to29_actual      30to39_actual      40to49_actual   greater49_actual 
+      3.350515e-02       2.604061e-02       2.795085e-02       2.564103e-02 
+   less20_expected    20to29_expected    30to39_expected    40to49_expected 
+      2.744058e-02       2.861203e-02       1.705359e-02       1.883848e-02 
+greater49_expected 
+      1.035403e-02 
+[1] "=== ALGORITHM COMPARISON ==="
+[1] "Batch vs Continuous - Key Metrics:"
+[1] "Batch actual incidence: 0.0936"
+[1] "Continuous actual incidence: 0.03"
+[1] "Batch agent count: 4483"
+[1] "Continuous agent count: 2233"

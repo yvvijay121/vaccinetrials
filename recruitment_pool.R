@@ -4,7 +4,7 @@ library(magrittr)
 setwd("~/Documents/Programming_Projects/vaccinetrials")
 
 # Read the CSV file as a data frame
-simulation_data <- read.csv("events_pool.csv")
+simulation_data <- read.csv("data/events_pool.csv")
 
 # Label data with the time each agent has their first infection, if applicable.
 agents_infected_total <- simulation_data[simulation_data$Event == "infected",]
