@@ -172,7 +172,11 @@ while(nrow(batch_expectation_vs_reality) < number_of_runs) {
   # Convert batch parameters to continuous equivalents:
   # screening_rate = recruitment_per_batch = 50 per time step
   # recruitment_rate = recruited_per_batch = 5 per time step
-  continuous_algorithm_list <- continuous_algorithm(recruitment_dataset = recruitment_pool, model_used = cox_model, target_demographics = c("Gender", "Race", "Age_Category"), target_props = target_demo, trial_followup_years = 1.5, req_sample_size = 800)
+  # Use adaptive thresholds with clinically meaningful constraints:
+  # - High risk: top 5% (or minimum 3% annual risk)  
+  # - Medium risk: top 15% (or minimum 2% annual risk)
+  # - Low risk: top 50% (or minimum 1% annual risk)
+  continuous_algorithm_list <- continuous_algorithm(recruitment_dataset = recruitment_pool, model_used = cox_model, target_demographics = c("Gender", "Race", "Age_Category"), target_props = target_demo, trial_followup_years = 1.5, req_sample_size = 800, high_risk_percentile = 0.05, medium_risk_percentile = 0.15, low_risk_percentile = 0.5, min_clinical_threshold = 0.01)
   
   continuous_algorithm_output <- continuous_algorithm_list$algorithm_output
   

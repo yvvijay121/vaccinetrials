@@ -47,9 +47,12 @@ target_demo <- cbind(target_gender_comp, target_race_comp, target_age_comp)
 # target_props - a vector delineating the target proportion for each demographic group
 # trial_followup_years - the follow up period for the simulated trial, which is used for prediction of infection probability with the survival analysis model
 # req_sample_size - an estimated value for required sample size based on conventional recruitment methods (such as in-network recruitment)
-# incidence_weight_min - the minimum value for the incidence weight
+# high_risk_percentile - percentile threshold for high-risk candidates (default: top 5%)
+# medium_risk_percentile - percentile threshold for medium-risk candidates (default: top 15%) 
+# low_risk_percentile - percentile threshold for low-risk candidates (default: top 50%)
+# min_clinical_threshold - minimum clinically meaningful risk threshold (default: 1% annual risk)
 # print_diagnostics - T/F value used only for simulations purposes to print simulation details
-continuous_algorithm <- function(recruitment_dataset, model_used, target_demographics, target_props, trial_followup_years, req_sample_size, print_diagnostics = FALSE) {
+continuous_algorithm <- function(recruitment_dataset, model_used, target_demographics, target_props, trial_followup_years, req_sample_size, high_risk_percentile = 0.05, medium_risk_percentile = 0.15, low_risk_percentile = 0.5, min_clinical_threshold = 0.01, print_diagnostics = FALSE) {
 
   # Throw error if number of target groups does not equal number of matched groups
   if((length(unlist(sapply(recruitment_dataset[,target_demographics], levels))) != length(target_props)) & (!is.null(target_demographics))){
@@ -158,6 +161,38 @@ continuous_algorithm <- function(recruitment_dataset, model_used, target_demogra
   }
     
   #########################################################################
+  ########################### ADAPTIVE THRESHOLD CALCULATION #############
+  #########################################################################
+  
+  # Calculate adaptive thresholds based on recruitment goals and clinical constraints
+  # Apply model to entire recruitment dataset to understand probability distribution  
+  recruitment_with_probs <- recruitment_dataset
+  if(class(model_used)[1] == "coxph"){
+    recruitment_with_probs <- apply_cox(recruitment_with_probs, model_used, trial_followup_years)
+  } else if(class(model_used)[1] == "rfsrc"){
+    recruitment_with_probs <- apply_rsf(recruitment_with_probs, model_used, trial_followup_years)
+  }
+  
+  # Calculate percentile-based thresholds from the current recruitment pool
+  prob_quantiles <- quantile(recruitment_with_probs$infected_probability, 
+                            probs = c(1 - low_risk_percentile, 1 - medium_risk_percentile, 1 - high_risk_percentile), 
+                            na.rm = TRUE)
+  
+  # Set adaptive thresholds with clinical floor constraints
+  high_risk_threshold <- max(prob_quantiles[3], min_clinical_threshold * 3)    # At least 3% or top 5%
+  medium_risk_threshold <- max(prob_quantiles[2], min_clinical_threshold * 2)  # At least 2% or top 15%  
+  low_risk_threshold <- max(prob_quantiles[1], min_clinical_threshold)         # At least 1% or top 50%
+  
+  if(print_diagnostics) {
+    cat("=== ADAPTIVE THRESHOLDS CALCULATED ===\n")
+    cat(sprintf("High-risk threshold (top %0.0f%%): %0.4f\n", high_risk_percentile*100, high_risk_threshold))
+    cat(sprintf("Medium-risk threshold (top %0.0f%%): %0.4f\n", medium_risk_percentile*100, medium_risk_threshold))
+    cat(sprintf("Low-risk threshold (top %0.0f%%): %0.4f\n", low_risk_percentile*100, low_risk_threshold))
+    cat(sprintf("Clinical floor: %0.4f\n", min_clinical_threshold))
+    cat("=========================================\n")
+  }
+  
+  #########################################################################
   ########################### ALGORITHM VARIABLES ########################
   #########################################################################
   
@@ -190,18 +225,18 @@ continuous_algorithm <- function(recruitment_dataset, model_used, target_demogra
       total_recruited <- nrow(algorithm_output)
       demographic_priority <- calculate_demographic_priority(candidate, demographic_counters, target_proportions, total_recruited)
       
-      # Enhanced recruitment decision based on new infected probability criteria
-      # Recruit if candidate's infected_probability is above 0.4, or
-      # If demographic priority is positive and infected_probability is above 0.2, or
-      # Random chance (10%) if infected_probability is above 0.1
+      # Enhanced recruitment decision based on adaptive infected probability criteria
+      # Recruit if candidate's infected_probability is above high_risk_threshold, or
+      # If demographic priority is positive and infected_probability is above medium_risk_threshold, or
+      # Random chance (10%) if infected_probability is above low_risk_threshold
 
       recruit_candidate <- FALSE
 
-      if(candidate$infected_probability > 0.4) {
+      if(candidate$infected_probability >= high_risk_threshold) {
         recruit_candidate <- TRUE
-      } else if(candidate$infected_probability > 0.2 && demographic_priority > 0) {
+      } else if(candidate$infected_probability >= medium_risk_threshold && demographic_priority > 0) {
         recruit_candidate <- TRUE
-      } else if(candidate$infected_probability > 0.1 && runif(1) < 0.1) {
+      } else if(candidate$infected_probability >= low_risk_threshold && runif(1) < 0.1) {
         recruit_candidate <- TRUE
       }
       
@@ -215,7 +250,6 @@ continuous_algorithm <- function(recruitment_dataset, model_used, target_demogra
         # Print diagnostic information
         if(print_diagnostics && nrow(algorithm_output) %% 50 == 0) {
           cat(paste("Recruited", nrow(algorithm_output), "candidates after", time_step, "time steps\n"))
-          print_demographic_status(demographic_counters, target_proportions, nrow(algorithm_output))
         }
       }
     } else {
